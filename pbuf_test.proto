@@ -1,0 +1,10 @@
+syntax = "proto3";
+
+package dbgo;
+
+option go_package = "github.com/getlantern/dbgo";
+
+message PBUFObject {
+    string a = 1;
+    double b = 2;
+}
