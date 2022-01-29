@@ -4,7 +4,7 @@
 // 	protoc        v3.19.3
 // source: pbuf_test.proto
 
-package dbgo
+package pathdb
 
 import (
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
@@ -101,7 +101,7 @@ func file_pbuf_test_proto_rawDescGZIP() []byte {
 
 var file_pbuf_test_proto_msgTypes = make([]protoimpl.MessageInfo, 1)
 var file_pbuf_test_proto_goTypes = []interface{}{
-	(*PBUFObject)(nil), // 0: dbgo.PBUFObject
+	(*PBUFObject)(nil), // 0: pathdb.PBUFObject
 }
 var file_pbuf_test_proto_depIdxs = []int32{
 	0, // [0:0] is the sub-list for method output_type

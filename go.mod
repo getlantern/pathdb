@@ -1,9 +1,10 @@
-module github.com/getlantern/dbgo
+module github.com/getlantern/pathdb
 
 go 1.18
 
 require (
 	github.com/davecgh/go-spew v1.1.0 // indirect
+	github.com/mattn/go-sqlite3 v1.14.11 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
 	github.com/stretchr/testify v1.7.0 // indirect
 	google.golang.org/protobuf v1.27.1 // indirect

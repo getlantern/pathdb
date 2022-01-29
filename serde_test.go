@@ -1,4 +1,4 @@
-package dbgo
+package pathdb
 
 import (
 	"testing"
