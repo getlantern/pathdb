@@ -3,6 +3,7 @@ package pathdb
 import (
 	"errors"
 	"fmt"
+	"math"
 
 	"github.com/getlantern/pathdb/minisql"
 )
@@ -11,9 +12,51 @@ var (
 	ErrUnexpectedDBError = errors.New("unexpected database error")
 )
 
+type pathAndValue struct {
+	path  string
+	value []byte
+}
+
+type Query struct {
+	path        string
+	start       int
+	count       int
+	reverseSort bool
+}
+
+func (query *Query) ApplyDefaults() {
+	if query.count == 0 {
+		query.count = math.MaxInt32
+	}
+}
+
+type Search struct {
+	search         string
+	highlightStart string
+	highlightEnd   string
+	ellipses       string
+	numTokens      int
+}
+
+func (search *Search) ApplyDefaults() {
+	if search.highlightStart == "" {
+		search.highlightStart = "*"
+	}
+	if search.highlightEnd == "" {
+		search.highlightEnd = "*"
+	}
+	if search.ellipses == "" {
+		search.ellipses = "..."
+	}
+	if search.numTokens <= 0 {
+		search.numTokens = 64
+	}
+}
+
 type Queryable interface {
-	get(path string) ([]byte, error)
 	getSerde() *serde
+	get(path string) ([]byte, error)
+	list(query *Query, search *Search) ([]*pathAndValue, error)
 }
 
 type DB interface {
@@ -158,6 +201,53 @@ func (q *queryable) get(path string) ([]byte, error) {
 	return b, nil
 }
 
+func (q *queryable) list(query *Query, search *Search) ([]*pathAndValue, error) {
+	serializedPath, err := q.serde.serialize(query.path)
+	if err != nil {
+		return nil, err
+	}
+
+	query.ApplyDefaults()
+	var rows minisql.Rows
+	if search != nil {
+		search.ApplyDefaults()
+	} else {
+		sortOrder := "ASC"
+		if query.reverseSort {
+			sortOrder = "DESC"
+		}
+		rows, err = q.core.Query(
+			fmt.Sprintf("SELECT path, value FROM %s_data WHERE path LIKE ? ORDER BY path %s LIMIT ? OFFSET ?", q.schema, sortOrder),
+			serializedPath,
+			query.count,
+			query.start,
+		)
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	defer rows.Close()
+	result := make([]*pathAndValue, 0, 100)
+	for rows.Next() {
+		var _path, _value []byte
+		err = rows.Scan(&_path, &_value)
+		if err != nil {
+			return nil, err
+		}
+		path, err := q.serde.deserialize(_path)
+		if err != nil {
+			return nil, err
+		}
+		result = append(result, &pathAndValue{
+			path:  path.(string),
+			value: _value,
+		})
+	}
+
+	return result, err
+}
+
 func (t *tx) put(path string, value interface{}, fullText string, updateIfPresent bool) error {
 	serializedPath, err := t.serde.serialize(path)
 	if err != nil {
@@ -258,11 +348,4 @@ func (t *tx) commit() error {
 
 func (t *tx) doCommit() error {
 	return t.tx.Commit()
-}
-
-type Query struct {
-	path        string
-	start       int
-	count       int
-	reverseSort bool
 }

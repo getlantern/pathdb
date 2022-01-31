@@ -2,3 +2,7 @@
 pbuf_test.pb.go: pbuf_test.proto
 	@protoc --go_out=$$GOPATH/src pbuf_test.proto && \
 	echo "recompiled protocol buffers"
+
+.PHONY: test
+test:
+	go test -tags sqlite_fts5 ./...

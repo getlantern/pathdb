@@ -1,11 +1,11 @@
 package pathdb
 
 type Raw[T any] struct {
-	serde *serde
-	Bytes []byte
-	value T
-	err error
+	serde  *serde
+	Bytes  []byte
 	loaded bool
+	value  T
+	err    error
 }
 
 func (r *Raw[T]) Value() (T, error) {

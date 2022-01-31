@@ -1,6 +1,11 @@
 package pathdb
 
-func Mutate(d *db, fn func(TX) error) error {
+type PathAndValue[T any] struct {
+	path  string
+	value T
+}
+
+func Mutate(d DB, fn func(TX) error) error {
 	t, err := d.begin()
 	if err != nil {
 		return err
@@ -12,7 +17,7 @@ func Mutate(d *db, fn func(TX) error) error {
 	} else {
 		t.rollback()
 	}
-	
+
 	return err
 }
 
@@ -20,7 +25,7 @@ func Get[T any](q Queryable, path string) (result T, err error) {
 	var _result *Raw[T]
 	_result, err = RGet[T](q, path)
 	if err != nil {
-		return 
+		return
 	}
 	if _result != nil {
 		result, err = _result.Value()
@@ -41,6 +46,63 @@ func RGet[T any](q Queryable, path string) (result *Raw[T], err error) {
 		}
 	}
 	return
+}
+
+func List[T any](q Queryable, query *Query, search *Search) (result []*PathAndValue[T], err error) {
+	var _result []*pathAndValue
+	_result, err = q.list(query, search)
+	if err != nil {
+		return
+	}
+
+	serde := q.getSerde()
+	result = make([]*PathAndValue[T], 0, len(_result))
+	for _, pv := range _result {
+		var _value interface{}
+		_value, err = serde.deserialize(pv.value)
+		if err != nil {
+			return
+		}
+		result = append(result, &PathAndValue[T]{
+			path:  pv.path,
+			value: _value.(T),
+		})
+	}
+	return
+}
+
+func RList[T any](q Queryable, query *Query, search *Search) (result []*PathAndValue[*Raw[T]], err error) {
+	var _result []*pathAndValue
+	_result, err = q.list(query, search)
+	if err != nil {
+		return
+	}
+
+	serde := q.getSerde()
+	result = make([]*PathAndValue[*Raw[T]], 0, len(_result))
+	for _, pv := range _result {
+		if err != nil {
+			return
+		}
+		result = append(result, &PathAndValue[*Raw[T]]{
+			path: pv.path,
+			value: &Raw[T]{
+				serde: serde,
+				Bytes: pv.value,
+			},
+		})
+	}
+	return
+}
+
+func PutAll[T any](t TX, values map[string]T) error {
+	for path, value := range values {
+		err := Put(t, path, value, "")
+		if err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func Put[T any](t TX, path string, value T, fullText string) error {
