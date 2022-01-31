@@ -17,13 +17,28 @@ func Mutate(d *db, fn func(TX) error) error {
 }
 
 func Get[T any](q Queryable, path string) (result T, err error) {
-	var _result interface{}
-	_result, err = q.get(path)
+	var _result *Raw[T]
+	_result, err = RGet[T](q, path)
+	if err != nil {
+		return 
+	}
+	if _result != nil {
+		result, err = _result.Value()
+	}
+	return
+}
+
+func RGet[T any](q Queryable, path string) (result *Raw[T], err error) {
+	var b []byte
+	b, err = q.get(path)
 	if err != nil {
 		return
 	}
-	if _result != nil {
-		result = _result.(T)
+	if len(b) > 0 {
+		result = &Raw[T]{
+			serde: q.getSerde(),
+			Bytes: b,
+		}
 	}
 	return
 }

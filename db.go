@@ -12,7 +12,8 @@ var (
 )
 
 type Queryable interface {
-	get(path string) (interface{}, error)
+	get(path string) ([]byte, error)
+	getSerde() *serde
 }
 
 type DB interface {
@@ -132,7 +133,11 @@ func (d *db) mainLoop() {
 	}
 }
 
-func (q *queryable) get(path string) (interface{}, error) {
+func (q *queryable) getSerde() *serde {
+	return q.serde
+}
+
+func (q *queryable) get(path string) ([]byte, error) {
 	serializedPath, err := q.serde.serialize(path)
 	if err != nil {
 		return nil, err
@@ -150,7 +155,7 @@ func (q *queryable) get(path string) (interface{}, error) {
 	if err != nil {
 		return nil, err
 	}
-	return q.serde.deserialize(b)
+	return b, nil
 }
 
 func (t *tx) put(path string, value interface{}, fullText string, updateIfPresent bool) error {
