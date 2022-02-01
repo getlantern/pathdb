@@ -12,25 +12,27 @@ var (
 	ErrUnexpectedDBError = errors.New("unexpected database error")
 )
 
-type pathAndValue struct {
-	path  string
-	value []byte
+type item struct {
+	path       string
+	detailPath string
+	value      []byte
+	snippet    string
 }
 
-type Query struct {
+type QueryParams struct {
 	path        string
 	start       int
 	count       int
 	reverseSort bool
 }
 
-func (query *Query) ApplyDefaults() {
+func (query *QueryParams) ApplyDefaults() {
 	if query.count == 0 {
 		query.count = math.MaxInt32
 	}
 }
 
-type Search struct {
+type SearchParams struct {
 	search         string
 	highlightStart string
 	highlightEnd   string
@@ -38,7 +40,7 @@ type Search struct {
 	numTokens      int
 }
 
-func (search *Search) ApplyDefaults() {
+func (search *SearchParams) ApplyDefaults() {
 	if search.highlightStart == "" {
 		search.highlightStart = "*"
 	}
@@ -56,7 +58,7 @@ func (search *Search) ApplyDefaults() {
 type Queryable interface {
 	getSerde() *serde
 	get(path string) ([]byte, error)
-	list(query *Query, search *Search) ([]*pathAndValue, error)
+	list(query *QueryParams, search *SearchParams) ([]*item, error)
 }
 
 type DB interface {
@@ -201,7 +203,7 @@ func (q *queryable) get(path string) ([]byte, error) {
 	return b, nil
 }
 
-func (q *queryable) list(query *Query, search *Search) ([]*pathAndValue, error) {
+func (q *queryable) list(query *QueryParams, search *SearchParams) ([]*item, error) {
 	serializedPath, err := q.serde.serialize(query.path)
 	if err != nil {
 		return nil, err
@@ -209,8 +211,20 @@ func (q *queryable) list(query *Query, search *Search) ([]*pathAndValue, error) 
 
 	query.ApplyDefaults()
 	var rows minisql.Rows
-	if search != nil {
+	isSearch := search != nil
+	if isSearch {
 		search.ApplyDefaults()
+		rows, err = q.core.Query(
+			fmt.Sprintf("SELECT d.path, d.value, snippet(%s_fts2, 0, ?, ?, ?, ?) FROM %s_fts2 f INNER JOIN %s_data d ON f.rowid = d.rowid WHERE d.path LIKE ? AND f.value MATCH ? ORDER BY f.rank LIMIT ? OFFSET ?", q.schema, q.schema, q.schema),
+			search.highlightStart,
+			search.highlightEnd,
+			search.ellipses,
+			search.numTokens,
+			serializedPath,
+			search.search,
+			query.count,
+			query.start,
+		)
 	} else {
 		sortOrder := "ASC"
 		if query.reverseSort {
@@ -228,10 +242,15 @@ func (q *queryable) list(query *Query, search *Search) ([]*pathAndValue, error) 
 	}
 
 	defer rows.Close()
-	result := make([]*pathAndValue, 0, 100)
+	items := make([]*item, 0, 100)
 	for rows.Next() {
-		var _path, _value []byte
-		err = rows.Scan(&_path, &_value)
+		item := &item{}
+		var _path []byte
+		if isSearch {
+			err = rows.Scan(&_path, &item.value, &item.snippet)
+		} else {
+			err = rows.Scan(&_path, &item.value)
+		}
 		if err != nil {
 			return nil, err
 		}
@@ -239,13 +258,11 @@ func (q *queryable) list(query *Query, search *Search) ([]*pathAndValue, error) 
 		if err != nil {
 			return nil, err
 		}
-		result = append(result, &pathAndValue{
-			path:  path.(string),
-			value: _value,
-		})
+		item.path = path.(string)
+		items = append(items, item)
 	}
 
-	return result, err
+	return items, err
 }
 
 func (t *tx) put(path string, value interface{}, fullText string, updateIfPresent bool) error {
@@ -262,11 +279,6 @@ func (t *tx) put(path string, value interface{}, fullText string, updateIfPresen
 	if updateIfPresent {
 		onConflictClause = " ON CONFLICT(path) DO UPDATE SET value = EXCLUDED.value"
 	}
-	_, err = t.tx.Exec(fmt.Sprintf("INSERT INTO %s_counters(id, value) VALUES(0, 0) ON CONFLICT(id) DO UPDATE SET value = value+1", t.schema))
-	if err != nil {
-		return err
-	}
-
 	if fullText == "" {
 		// not doing full text, simple path
 		_, err = t.tx.Exec(fmt.Sprintf("INSERT INTO %s_data(path, value) VALUES(?, ?)%s", t.schema, onConflictClause), serializedPath, serializedValue)
@@ -294,6 +306,10 @@ func (t *tx) put(path string, value interface{}, fullText string, updateIfPresen
 	rowID := existingRowID
 	if !isUpdate {
 		// we're inserting a new row, get the next rowID from the sequence
+		_, err = t.tx.Exec(fmt.Sprintf("INSERT INTO %s_counters(id, value) VALUES(0, 0) ON CONFLICT(id) DO UPDATE SET value = value+1", t.schema))
+		if err != nil {
+			return err
+		}
 		rows, err = t.tx.Query(fmt.Sprintf("SELECT value FROM %s_counters WHERE id = 0", t.schema))
 		if err != nil {
 			return err
@@ -315,8 +331,8 @@ func (t *tx) put(path string, value interface{}, fullText string, updateIfPresen
 	}
 
 	// maintain full text index
-	if isUpdate {
-		_, err = t.tx.Exec(fmt.Sprintf("INSERT INTO %s_fts2(value, rowid)", t.schema), fullText, rowID)
+	if !isUpdate {
+		_, err = t.tx.Exec(fmt.Sprintf("INSERT INTO %s_fts2(value, rowid) VALUES(?, ?)", t.schema), fullText, rowID)
 		return err
 	}
 	_, err = t.tx.Exec(fmt.Sprintf("UPDATE %s_fts2 SET value = ? where rowid = ?", t.schema), fullText, rowID)

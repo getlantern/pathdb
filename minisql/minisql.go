@@ -1,4 +1,4 @@
-// package minisql defines the subset of interfaces from database/sql that's needed to support pathdb
+// Package minisql defines the subset of interfaces from database/sql that's needed to support pathdb
 package minisql
 
 import (

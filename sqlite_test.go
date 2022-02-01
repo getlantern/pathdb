@@ -12,5 +12,5 @@ func newSQLiteImpl(file string) (minisql.DB, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &minisql.DBAdapter{db}, nil
+	return &minisql.DBAdapter{DB: db}, nil
 }

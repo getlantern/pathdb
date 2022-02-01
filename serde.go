@@ -11,18 +11,17 @@ import (
 )
 
 const (
-	TEXT            = 'T'
-	BYTEARRAY       = 'A'
-	BYTE            = '2'
-	BOOLEAN         = 'B'
-	SHORT           = 'S'
-	INT             = 'I'
-	LONG            = 'L'
-	FLOAT           = 'F'
-	DOUBLE          = 'D'
-	CHAR            = 'C'
-	PROTOCOL_BUFFER = 'P'
-	JSON            = 'J'
+	TEXT           = 'T'
+	BYTEARRAY      = 'A'
+	BYTE           = '2'
+	BOOLEAN        = 'B'
+	SHORT          = 'S'
+	INT            = 'I'
+	LONG           = 'L'
+	FLOAT          = 'F'
+	DOUBLE         = 'D'
+	PROTOCOLBUFFER = 'P'
+	JSON           = 'J'
 )
 
 var (
@@ -66,7 +65,7 @@ func (s *serde) serialize(data interface{}) (result []byte, err error) {
 	case string:
 		result = make([]byte, 1+len(v))
 		result[0] = TEXT
-		copy(result[1:], []byte(v))
+		copy(result[1:], v)
 	case []byte:
 		result = make([]byte, 1+len(v))
 		result[0] = BYTEARRAY
@@ -113,7 +112,7 @@ func (s *serde) serialize(data interface{}) (result []byte, err error) {
 			b, err = proto.Marshal(v)
 			if err == nil {
 				result = make([]byte, 3+len(b))
-				result[0] = PROTOCOL_BUFFER
+				result[0] = PROTOCOLBUFFER
 				byteorder.PutUint16(result[1:], uint16(pbType))
 				copy(result[3:], b)
 			}
@@ -157,7 +156,7 @@ func (s *serde) deserialize(b []byte) (result interface{}, err error) {
 		result = math.Float32frombits(byteorder.Uint32(b[1:]))
 	case DOUBLE:
 		result = math.Float64frombits(byteorder.Uint64(b[1:]))
-	case PROTOCOL_BUFFER:
+	case PROTOCOLBUFFER:
 		pbType, foundPBType := s.registeredProtocolBufferTypeIDs[int16(byteorder.Uint16(b[1:]))]
 		if !foundPBType {
 			err = ErrUnregisteredProtobufType
