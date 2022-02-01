@@ -24,6 +24,7 @@ type QueryParams struct {
 	start       int
 	count       int
 	reverseSort bool
+	joinDetails bool
 }
 
 func (query *QueryParams) ApplyDefaults() {
@@ -214,8 +215,12 @@ func (q *queryable) list(query *QueryParams, search *SearchParams) ([]*item, err
 	isSearch := search != nil
 	if isSearch {
 		search.ApplyDefaults()
+		sql := fmt.Sprintf("SELECT d.path, d.value, snippet(%s_fts2, 0, ?, ?, ?, ?) FROM %s_fts2 f INNER JOIN %s_data d ON f.rowid = d.rowid WHERE d.path LIKE ? AND f.value MATCH ? ORDER BY f.rank LIMIT ? OFFSET ?", q.schema, q.schema, q.schema)
+		if query.joinDetails {
+			sql = fmt.Sprintf("SELECT l.path, d.path, d.value, snippet(%s_fts2, 0, ?, ?, ?, ?) FROM %s_fts2 f INNER JOIN %s_data d ON f.rowid = d.rowid INNER JOIN %s_data l ON l.value = d.path WHERE l.path LIKE ? AND SUBSTR(CAST(l.value AS TEXT), 1, 1) = 'T' AND f.value MATCH ? ORDER BY f.rank LIMIT ? OFFSET ?", q.schema, q.schema, q.schema, q.schema)
+		}
 		rows, err = q.core.Query(
-			fmt.Sprintf("SELECT d.path, d.value, snippet(%s_fts2, 0, ?, ?, ?, ?) FROM %s_fts2 f INNER JOIN %s_data d ON f.rowid = d.rowid WHERE d.path LIKE ? AND f.value MATCH ? ORDER BY f.rank LIMIT ? OFFSET ?", q.schema, q.schema, q.schema),
+			sql,
 			search.highlightStart,
 			search.highlightEnd,
 			search.ellipses,
@@ -230,8 +235,12 @@ func (q *queryable) list(query *QueryParams, search *SearchParams) ([]*item, err
 		if query.reverseSort {
 			sortOrder = "DESC"
 		}
+		sql := fmt.Sprintf("SELECT path, value FROM %s_data WHERE path LIKE ? ORDER BY path %s LIMIT ? OFFSET ?", q.schema, sortOrder)
+		if query.joinDetails {
+			sql = fmt.Sprintf("SELECT l.path, d.path, d.value FROM %s_data l INNER JOIN %s_data d ON l.value = d.path WHERE l.path LIKE ? AND SUBSTR(CAST(l.value AS TEXT), 1, 1) = 'T' ORDER BY l.path %s LIMIT ? OFFSET ?", q.schema, q.schema, sortOrder)
+		}
 		rows, err = q.core.Query(
-			fmt.Sprintf("SELECT path, value FROM %s_data WHERE path LIKE ? ORDER BY path %s LIMIT ? OFFSET ?", q.schema, sortOrder),
+			sql,
 			serializedPath,
 			query.count,
 			query.start,
@@ -246,10 +255,19 @@ func (q *queryable) list(query *QueryParams, search *SearchParams) ([]*item, err
 	for rows.Next() {
 		item := &item{}
 		var _path []byte
+		var _detailPath []byte
 		if isSearch {
-			err = rows.Scan(&_path, &item.value, &item.snippet)
+			if query.joinDetails {
+				err = rows.Scan(&_path, &_detailPath, &item.value, &item.snippet)
+			} else {
+				err = rows.Scan(&_path, &item.value, &item.snippet)
+			}
 		} else {
-			err = rows.Scan(&_path, &item.value)
+			if query.joinDetails {
+				err = rows.Scan(&_path, &_detailPath, &item.value)
+			} else {
+				err = rows.Scan(&_path, &item.value)
+			}
 		}
 		if err != nil {
 			return nil, err
@@ -259,6 +277,13 @@ func (q *queryable) list(query *QueryParams, search *SearchParams) ([]*item, err
 			return nil, err
 		}
 		item.path = path.(string)
+		if _detailPath != nil {
+			detailPath, err := q.serde.deserialize(_detailPath)
+			if err != nil {
+				return nil, err
+			}
+			item.detailPath = detailPath.(string)
+		}
 		items = append(items, item)
 	}
 

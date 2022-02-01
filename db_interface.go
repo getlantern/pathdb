@@ -1,18 +1,14 @@
 package pathdb
 
 type Item[T any] struct {
-	Path  string
-	Value T
+	Path       string
+	DetailPath string
+	Value      T
 }
 
 type SearchResult[T any] struct {
 	Item[T]
 	Snippet string
-}
-
-type DetailItem[T any] struct {
-	Item[T]
-	DetailPath string
 }
 
 func Mutate(d DB, fn func(TX) error) error {
@@ -100,21 +96,27 @@ func RGet[T any](q Queryable, path string) (result *Raw[T], err error) {
 
 func List[T any](q Queryable, query *QueryParams) (result []*Item[T], err error) {
 	serde := q.getSerde()
-	return doSearch[Item[T]](q, query, nil, func(i *item) (*Item[T], error) {
+	return doSearch[*Item[T]](q, query, nil, func(i *item) (*Item[T], error) {
 		return newItem[T](serde, i)
 	})
 }
 
 func RList[T any](q Queryable, query *QueryParams) (result []*Item[*Raw[T]], err error) {
 	serde := q.getSerde()
-	return doSearch[Item[*Raw[T]]](q, query, nil, func(i *item) (*Item[*Raw[T]], error) {
+	return doSearch[*Item[*Raw[T]]](q, query, nil, func(i *item) (*Item[*Raw[T]], error) {
 		return newRawItem[T](serde, i)
+	})
+}
+
+func ListPaths(q Queryable, query *QueryParams) (result []string, err error) {
+	return doSearch[string](q, query, nil, func(i *item) (string, error) {
+		return i.path, nil
 	})
 }
 
 func Search[T any](q Queryable, query *QueryParams, search *SearchParams) (result []*SearchResult[T], err error) {
 	serde := q.getSerde()
-	return doSearch[SearchResult[T]](q, query, search, func(i *item) (*SearchResult[T], error) {
+	return doSearch[*SearchResult[T]](q, query, search, func(i *item) (*SearchResult[T], error) {
 		item, err := newItem[T](serde, i)
 		if err != nil {
 			return nil, err
@@ -128,7 +130,7 @@ func Search[T any](q Queryable, query *QueryParams, search *SearchParams) (resul
 
 func RSearch[T any](q Queryable, query *QueryParams, search *SearchParams) (result []*SearchResult[*Raw[T]], err error) {
 	serde := q.getSerde()
-	return doSearch[SearchResult[*Raw[T]]](q, query, search, func(i *item) (*SearchResult[*Raw[T]], error) {
+	return doSearch[*SearchResult[*Raw[T]]](q, query, search, func(i *item) (*SearchResult[*Raw[T]], error) {
 		item, err := newRawItem[T](serde, i)
 		if err != nil {
 			return nil, err
@@ -140,16 +142,16 @@ func RSearch[T any](q Queryable, query *QueryParams, search *SearchParams) (resu
 	})
 }
 
-func doSearch[I any](q Queryable, query *QueryParams, search *SearchParams, buildItem func(*item) (*I, error)) (items []*I, err error) {
+func doSearch[I any](q Queryable, query *QueryParams, search *SearchParams, buildItem func(*item) (I, error)) (items []I, err error) {
 	var _items []*item
 	_items, err = q.list(query, search)
 	if err != nil {
 		return
 	}
 
-	items = make([]*I, 0, len(_items))
+	items = make([]I, 0, len(_items))
 	for _, i := range _items {
-		var item *I
+		var item I
 		item, err = buildItem(i)
 		if err != nil {
 			return
@@ -165,14 +167,16 @@ func newItem[T any](s *serde, i *item) (*Item[T], error) {
 		return nil, err
 	}
 	return &Item[T]{
-		Path:  i.path,
-		Value: _value.(T),
+		Path:       i.path,
+		DetailPath: i.detailPath,
+		Value:      _value.(T),
 	}, nil
 }
 
 func newRawItem[T any](s *serde, i *item) (*Item[*Raw[T]], error) {
 	return &Item[*Raw[T]]{
-		Path: i.path,
+		Path:       i.path,
+		DetailPath: i.detailPath,
 		Value: &Raw[T]{
 			serde: s,
 			Bytes: i.value,
