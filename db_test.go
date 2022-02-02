@@ -12,19 +12,53 @@ import (
 var errTest = errors.New("test error")
 
 func TestTransactions(t *testing.T) {
+
 	withDB(t, func(db DB) {
+		var updates []*Item[*Raw[string]]
+		var deletes []string
+
+		Subscribe(db, &Subscription[string]{
+			ID:           "s1",
+			PathPrefixes: []string{"p%"},
+			OnUpdate: func(i *Item[*Raw[string]]) error {
+				updates = append(updates, i)
+				return nil
+			},
+			OnDelete: func(path string) error {
+				deletes = append(deletes, path)
+				return nil
+			},
+		})
+
 		// put and commit something
 		err := Mutate(db, func(tx TX) error {
-			require.NoError(t, Put(tx, "path", "hello world", "hello world full text"))
+			require.NoError(t, Put(tx, "path", "hello world", ""))
+			didPut, err := PutIfAbsent(tx, "path", "hello overwritten world", "")
+			require.NoError(t, err)
+			require.False(t, didPut, "should not have put new value for path")
+			didPut, err = PutIfAbsent(tx, "path2", "hello other world", "")
+			require.NoError(t, err)
+			require.True(t, didPut, "should have put value for new path2")
+			existing, err := GetOrPut(tx, "path", "hello other overwritten world", "")
+			require.NoError(t, err)
+			require.EqualValues(t, "hello world", existing, "should have gotten existing value at path")
 			return nil
 		})
 		require.NoError(t, err)
 
 		// make sure it can be read
 		require.Equal(t, "hello world", get[string](t, db, "path"))
-		require.Equal(t, unloadedRaw[string](db.getSerde(), "hello world"), rget[string](t, db, "path"))
+		require.Equal(t, unloadedRaw(db.getSerde(), "hello world"), rget[string](t, db, "path"))
+		require.Equal(t, unloadedRaw(db.getSerde(), "hello other world"), rget[string](t, db, "path2"))
 
-		// put and rollback something
+		// make sure subscriber was notified
+		require.EqualValues(t,
+			[]*Item[*Raw[string]]{
+				{"path", "", loadedRaw(db.getSerde(), "hello world")},
+				{"path2", "", loadedRaw(db.getSerde(), "hello other world")},
+			}, updates)
+
+		// delete and rollback something
 		err = Mutate(db, func(tx TX) error {
 			require.NoError(t, Delete(tx, "path"))
 			require.Empty(t, get[string](t, tx, "path"), "delete should be reflected in scope of ongoing transaction")
@@ -144,7 +178,6 @@ func TestSearch(t *testing.T) {
 				"/linktomessage/3": "/messages/b",
 				"/linktomessage/4": "/messages/a",
 			})
-			return nil
 		})
 		require.NoError(t, err)
 
@@ -169,9 +202,9 @@ func TestSearch(t *testing.T) {
 		)
 
 		require.EqualValues(t, []*SearchResult[*Raw[string]]{
-			{Item[*Raw[string]]{"/messages/d", "", unloadedRaw[string](db.getSerde(), "Message D blah blah blah")}, "...*bla*h *bla*h..."},
-			{Item[*Raw[string]]{"/messages/c", "", unloadedRaw[string](db.getSerde(), "Message C blah blah")}, "...*bla*h *bla*h"},
-			{Item[*Raw[string]]{"/messages/a", "", unloadedRaw[string](db.getSerde(), "Message A blah")}, "...ge A *bla*h"},
+			{Item[*Raw[string]]{"/messages/d", "", unloadedRaw(db.getSerde(), "Message D blah blah blah")}, "...*bla*h *bla*h..."},
+			{Item[*Raw[string]]{"/messages/c", "", unloadedRaw(db.getSerde(), "Message C blah blah")}, "...*bla*h *bla*h"},
+			{Item[*Raw[string]]{"/messages/a", "", unloadedRaw(db.getSerde(), "Message A blah")}, "...ge A *bla*h"},
 		}, rsearch[string](
 			t,
 			db,

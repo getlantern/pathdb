@@ -1,5 +1,11 @@
 package pathdb
 
+import (
+	"errors"
+
+	"github.com/mattn/go-sqlite3"
+)
+
 type Item[T any] struct {
 	Path       string
 	DetailPath string
@@ -44,18 +50,31 @@ func Put[T any](t TX, path string, value T, fullText string) error {
 	return t.put(path, value, fullText, true)
 }
 
-func PutIfAbsent[T any](t TX, path string, value T, fullText string) error {
-	return t.put(path, value, fullText, false)
+func PutIfAbsent[T any](t TX, path string, value T, fullText string) (bool, error) {
+	err := t.put(path, value, fullText, false)
+	if err != nil {
+		sqlErr, ok := err.(sqlite3.Error)
+		if ok && errors.Is(sqlErr.Code, sqlite3.ErrConstraint) {
+			// this means there was already a value at that path
+			return false, nil
+		}
+		return false, err
+	}
+	return true, nil
 }
 
 func GetOrPut[T any](t TX, path string, value T, fullText string) (result T, err error) {
-	var _result interface{}
-	_result, err = t.get(path)
+	var b []byte
+	b, err = t.get(path)
 	if err != nil {
 		return
 	}
-	if _result != nil {
-		result = _result.(T)
+	if b != nil {
+		var _result interface{}
+		_result, err = t.getSerde().deserialize(b)
+		if err == nil {
+			result = _result.(T)
+		}
 		return
 	}
 	result = value
@@ -96,27 +115,27 @@ func RGet[T any](q Queryable, path string) (result *Raw[T], err error) {
 
 func List[T any](q Queryable, query *QueryParams) (result []*Item[T], err error) {
 	serde := q.getSerde()
-	return doSearch[*Item[T]](q, query, nil, func(i *item) (*Item[T], error) {
+	return doSearch(q, query, nil, func(i *item) (*Item[T], error) {
 		return newItem[T](serde, i)
 	})
 }
 
 func RList[T any](q Queryable, query *QueryParams) (result []*Item[*Raw[T]], err error) {
 	serde := q.getSerde()
-	return doSearch[*Item[*Raw[T]]](q, query, nil, func(i *item) (*Item[*Raw[T]], error) {
+	return doSearch(q, query, nil, func(i *item) (*Item[*Raw[T]], error) {
 		return newRawItem[T](serde, i)
 	})
 }
 
 func ListPaths(q Queryable, query *QueryParams) (result []string, err error) {
-	return doSearch[string](q, query, nil, func(i *item) (string, error) {
+	return doSearch(q, query, nil, func(i *item) (string, error) {
 		return i.path, nil
 	})
 }
 
 func Search[T any](q Queryable, query *QueryParams, search *SearchParams) (result []*SearchResult[T], err error) {
 	serde := q.getSerde()
-	return doSearch[*SearchResult[T]](q, query, search, func(i *item) (*SearchResult[T], error) {
+	return doSearch(q, query, search, func(i *item) (*SearchResult[T], error) {
 		item, err := newItem[T](serde, i)
 		if err != nil {
 			return nil, err
@@ -130,7 +149,7 @@ func Search[T any](q Queryable, query *QueryParams, search *SearchParams) (resul
 
 func RSearch[T any](q Queryable, query *QueryParams, search *SearchParams) (result []*SearchResult[*Raw[T]], err error) {
 	serde := q.getSerde()
-	return doSearch[*SearchResult[*Raw[T]]](q, query, search, func(i *item) (*SearchResult[*Raw[T]], error) {
+	return doSearch(q, query, search, func(i *item) (*SearchResult[*Raw[T]], error) {
 		item, err := newRawItem[T](serde, i)
 		if err != nil {
 			return nil, err

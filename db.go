@@ -5,8 +5,12 @@ import (
 	"fmt"
 	"math"
 
+	"github.com/getlantern/golog"
 	"github.com/getlantern/pathdb/minisql"
+	"github.com/tchap/go-patricia/v2/patricia"
 )
+
+var log = golog.LoggerFor("pathdb")
 
 var (
 	ErrUnexpectedDBError = errors.New("unexpected database error")
@@ -66,6 +70,8 @@ type DB interface {
 	Queryable
 	begin() (TX, error)
 	withSchema(string) DB
+	subscribe(*subscription)
+	unsubscribe(string)
 }
 
 type TX interface {
@@ -84,14 +90,20 @@ type queryable struct {
 
 type db struct {
 	queryable
-	db      minisql.DB
-	commits chan *commit
+	db                  minisql.DB
+	commits             chan *commit
+	subscribes          chan *subscription
+	unsubscribes        chan string
+	subscriptionsByID   map[string]*subscription
+	subscriptionsByPath patricia.Trie
 }
 
 type tx struct {
 	queryable
 	commits chan *commit
 	tx      minisql.Tx
+	updates map[string]*Item[*Raw[any]]
+	deletes map[string]bool
 }
 
 type commit struct {
@@ -134,8 +146,12 @@ func NewDB(core minisql.DB, schema string) (*db, error) {
 			schema: schema,
 			serde:  newSerde(),
 		},
-		db:      core,
-		commits: make(chan *commit, 100),
+		db:                  core,
+		commits:             make(chan *commit, 100),
+		subscribes:          make(chan *subscription, 100),
+		unsubscribes:        make(chan string, 100),
+		subscriptionsByID:   make(map[string]*subscription),
+		subscriptionsByPath: *patricia.NewTrie(),
 	}
 	go d.mainLoop()
 	return d, nil
@@ -167,6 +183,8 @@ func (d *db) begin() (TX, error) {
 		},
 		tx:      _tx,
 		commits: d.commits,
+		updates: make(map[string]*Item[*Raw[any]]),
+		deletes: make(map[string]bool),
 	}, nil
 }
 
@@ -174,7 +192,12 @@ func (d *db) mainLoop() {
 	for {
 		select {
 		case commit := <-d.commits:
+			d.onCommit(commit)
 			commit.finished <- commit.t.doCommit()
+		case s := <-d.subscribes:
+			d.onNewSubscription(s)
+		case id := <-d.unsubscribes:
+			d.onDeleteSubscription(id)
 		}
 	}
 }
@@ -300,6 +323,19 @@ func (t *tx) put(path string, value interface{}, fullText string, updateIfPresen
 		return err
 	}
 
+	saveUpdate := func() {
+		delete(t.deletes, path)
+		t.updates[path] = &Item[*Raw[any]]{
+			Path: path,
+			Value: &Raw[any]{
+				serde:  t.serde,
+				Bytes:  serializedValue,
+				loaded: true,
+				value:  value,
+			},
+		}
+	}
+
 	onConflictClause := ""
 	if updateIfPresent {
 		onConflictClause = " ON CONFLICT(path) DO UPDATE SET value = EXCLUDED.value"
@@ -307,6 +343,9 @@ func (t *tx) put(path string, value interface{}, fullText string, updateIfPresen
 	if fullText == "" {
 		// not doing full text, simple path
 		_, err = t.tx.Exec(fmt.Sprintf("INSERT INTO %s_data(path, value) VALUES(?, ?)%s", t.schema, onConflictClause), serializedPath, serializedValue)
+		if err == nil {
+			saveUpdate()
+		}
 		return err
 	}
 
@@ -361,6 +400,10 @@ func (t *tx) put(path string, value interface{}, fullText string, updateIfPresen
 		return err
 	}
 	_, err = t.tx.Exec(fmt.Sprintf("UPDATE %s_fts2 SET value = ? where rowid = ?", t.schema), fullText, rowID)
+
+	if err == nil {
+		saveUpdate()
+	}
 	return err
 }
 
@@ -370,6 +413,10 @@ func (t *tx) delete(path string) error {
 		return err
 	}
 	_, err = t.tx.Exec(fmt.Sprintf("DELETE FROM %s_data WHERE path = ?", t.schema), serializedPath)
+	if err == nil {
+		delete(t.updates, path)
+		t.deletes[path] = true
+	}
 	return err
 }
 
