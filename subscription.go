@@ -7,13 +7,17 @@ import (
 	"github.com/tchap/go-patricia/v2/patricia"
 )
 
+type ChangeSet[T any] struct {
+	Updates []*Item[*Raw[T]]
+	Deletes []string
+}
+
 type Subscription[T any] struct {
 	ID             string
 	PathPrefixes   []string
 	JoinDetails    bool
 	ReceiveInitial bool
-	OnUpdate       func(*Item[*Raw[T]]) error
-	OnDelete       func(path string) error
+	OnUpdate       func(*ChangeSet[T]) error
 }
 
 type subscription struct {
@@ -21,8 +25,9 @@ type subscription struct {
 	pathPrefixes   []string
 	joinDetails    bool
 	receiveInitial bool
-	onUpdate       func(interface{}) error
-	onDelete       func(path string) error
+	onUpdate       func(*Item[*Raw[any]])
+	onDelete       func(string)
+	flush          func() error
 }
 
 func Subscribe[T any](d DB, sub *Subscription[T]) error {
@@ -30,29 +35,42 @@ func Subscribe[T any](d DB, sub *Subscription[T]) error {
 	for i, prefix := range sub.PathPrefixes {
 		sub.PathPrefixes[i] = strings.TrimRight(prefix, "%")
 	}
+
 	// we have to create a new subscription to adapt the generic onUpdate to a non-generic one because
 	// we're not allowed to cast from a func[T] to a func[any]
+	var cs *ChangeSet[T]
+	initChangeset := func() {
+		cs = &ChangeSet[T]{}
+	}
+	initChangeset()
+
 	s := &subscription{
 		id:             sub.ID,
 		pathPrefixes:   sub.PathPrefixes,
 		joinDetails:    sub.JoinDetails,
 		receiveInitial: sub.ReceiveInitial,
-		onUpdate: func(v interface{}) error {
-			_item := v.(*Item[*Raw[any]])
-			item := &Item[*Raw[T]]{
-				Path:       _item.Path,
-				DetailPath: _item.DetailPath,
-				Value: &Raw[T]{
-					serde:  _item.Value.serde,
-					Bytes:  _item.Value.Bytes,
-					loaded: _item.Value.loaded,
-					value:  _item.Value.value.(T),
-					err:    _item.Value.err,
-				},
-			}
-			return sub.OnUpdate(item)
+		onUpdate: func(u *Item[*Raw[any]]) {
+			cs.Updates = append(cs.Updates,
+				&Item[*Raw[T]]{
+					Path:       u.Path,
+					DetailPath: u.DetailPath,
+					Value: &Raw[T]{
+						serde:  u.Value.serde,
+						Bytes:  u.Value.Bytes,
+						loaded: u.Value.loaded,
+						value:  u.Value.value.(T),
+						err:    u.Value.err,
+					},
+				})
 		},
-		onDelete: sub.OnDelete,
+		onDelete: func(p string) {
+			cs.Deletes = append(cs.Deletes, p)
+		},
+		flush: func() error {
+			err := sub.OnUpdate(cs)
+			initChangeset()
+			return err
+		},
 	}
 	d.subscribe(s)
 	return nil
@@ -77,7 +95,7 @@ func (d *db) onNewSubscription(s *subscription) {
 		})
 
 		if s.receiveInitial {
-			initial, err := RList[any](
+			items, err := RList[any](
 				d,
 				&QueryParams{
 					path:        fmt.Sprintf("%s%%", path),
@@ -87,11 +105,12 @@ func (d *db) onNewSubscription(s *subscription) {
 			if err != nil {
 				log.Debugf("unable to list initial values for path prefix %v: %v", path, err)
 			} else {
-				for _, item := range initial {
-					err := s.onUpdate(item)
-					if err != nil {
-						log.Debugf("subscriber failed to accept item onUpdate: %v", err)
-					}
+				for _, item := range items {
+					s.onUpdate(item)
+				}
+				err := s.flush()
+				if err != nil {
+					log.Debugf("subscriber failed to accept item onUpdate: %v", err)
 				}
 			}
 		}
@@ -114,14 +133,13 @@ func (d *db) onDeleteSubscription(id string) {
 
 func (d *db) onCommit(c *commit) {
 	log.Debugf("Updates: %v", c.t.updates)
+	dirty := make(map[string]*subscription, 0)
 	for path, u := range c.t.updates {
 		log.Debug(path)
 		_ = d.subscriptionsByPath.VisitPrefixes(patricia.Prefix(path), func(prefix patricia.Prefix, item patricia.Item) error {
 			for _, s := range item.(map[string]*subscription) {
-				err := s.onUpdate(u)
-				if err != nil {
-					log.Debugf("error on publishing update: %v", err)
-				}
+				s.onUpdate(u)
+				dirty[s.id] = s
 			}
 			return nil
 		})
@@ -129,13 +147,14 @@ func (d *db) onCommit(c *commit) {
 	for path := range c.t.deletes {
 		_ = d.subscriptionsByPath.VisitPrefixes(patricia.Prefix(path), func(prefix patricia.Prefix, item patricia.Item) error {
 			for _, s := range item.(map[string]*subscription) {
-				err := s.onDelete(path)
-				if err != nil {
-					log.Debugf("error on publishing delete: %v", err)
-				}
+				s.onDelete(path)
+				dirty[s.id] = s
 			}
 			return nil
 		})
+	}
+	for _, s := range dirty {
+		s.flush()
 	}
 }
 

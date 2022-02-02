@@ -14,18 +14,13 @@ var errTest = errors.New("test error")
 func TestTransactions(t *testing.T) {
 
 	withDB(t, func(db DB) {
-		var updates []*Item[*Raw[string]]
-		var deletes []string
+		var lastCS *ChangeSet[string]
 
 		Subscribe(db, &Subscription[string]{
 			ID:           "s1",
 			PathPrefixes: []string{"p%"},
-			OnUpdate: func(i *Item[*Raw[string]]) error {
-				updates = append(updates, i)
-				return nil
-			},
-			OnDelete: func(path string) error {
-				deletes = append(deletes, path)
+			OnUpdate: func(cs *ChangeSet[string]) error {
+				lastCS = cs
 				return nil
 			},
 		})
@@ -53,10 +48,12 @@ func TestTransactions(t *testing.T) {
 
 		// make sure subscriber was notified
 		require.EqualValues(t,
-			[]*Item[*Raw[string]]{
-				{"path", "", loadedRaw(db.getSerde(), "hello world")},
-				{"path2", "", loadedRaw(db.getSerde(), "hello other world")},
-			}, updates)
+			&ChangeSet[string]{
+				Updates: []*Item[*Raw[string]]{
+					{"path", "", loadedRaw(db.getSerde(), "hello world")},
+					{"path2", "", loadedRaw(db.getSerde(), "hello other world")},
+				},
+			}, lastCS)
 
 		// delete and rollback something
 		err = Mutate(db, func(tx TX) error {
