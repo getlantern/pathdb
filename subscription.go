@@ -30,6 +30,16 @@ type subscription struct {
 	flush          func() error
 }
 
+type subscribeRequest struct {
+	s    *subscription
+	done chan interface{}
+}
+
+type unsubscribeRequest struct {
+	id   string
+	done chan interface{}
+}
+
 func Subscribe[T any](d DB, sub *Subscription[T]) error {
 	// clean up pathPrefixes in case they include an unnecessary trailing % wildcard
 	for i, prefix := range sub.PathPrefixes {
@@ -50,6 +60,10 @@ func Subscribe[T any](d DB, sub *Subscription[T]) error {
 		joinDetails:    sub.JoinDetails,
 		receiveInitial: sub.ReceiveInitial,
 		onUpdate: func(u *Item[*Raw[any]]) {
+			var v T
+			if u.Value.value != nil {
+				v = u.Value.value.(T)
+			}
 			cs.Updates = append(cs.Updates,
 				&Item[*Raw[T]]{
 					Path:       u.Path,
@@ -58,7 +72,7 @@ func Subscribe[T any](d DB, sub *Subscription[T]) error {
 						serde:  u.Value.serde,
 						Bytes:  u.Value.Bytes,
 						loaded: u.Value.loaded,
-						value:  u.Value.value.(T),
+						value:  v,
 						err:    u.Value.err,
 					},
 				})
@@ -76,15 +90,32 @@ func Subscribe[T any](d DB, sub *Subscription[T]) error {
 	return nil
 }
 
+func Unsubscribe(d DB, id string) {
+	d.unsubscribe(id)
+}
+
 func (d *db) subscribe(s *subscription) {
-	d.subscribes <- s
+	sr := &subscribeRequest{
+		s:    s,
+		done: make(chan interface{}),
+	}
+	d.subscribes <- sr
+	<-sr.done
 }
 
 func (d *db) unsubscribe(id string) {
-	d.unsubscribes <- id
+	usr := &unsubscribeRequest{
+		id:   id,
+		done: make(chan interface{}),
+	}
+	d.unsubscribes <- usr
+	<-usr.done
 }
 
-func (d *db) onNewSubscription(s *subscription) {
+func (d *db) onNewSubscription(sr *subscribeRequest) {
+	s := sr.s
+	defer close(sr.done)
+
 	d.subscriptionsByID[s.id] = s
 	for _, path := range s.pathPrefixes {
 		subs := d.getOrCreateSubscriptionsByPath(path)
@@ -117,7 +148,10 @@ func (d *db) onNewSubscription(s *subscription) {
 	}
 }
 
-func (d *db) onDeleteSubscription(id string) {
+func (d *db) onDeleteSubscription(usr *unsubscribeRequest) {
+	id := usr.id
+	defer close(usr.done)
+
 	s, found := d.subscriptionsByID[id]
 	if !found {
 		return

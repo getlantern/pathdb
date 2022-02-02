@@ -92,8 +92,8 @@ type db struct {
 	queryable
 	db                  minisql.DB
 	commits             chan *commit
-	subscribes          chan *subscription
-	unsubscribes        chan string
+	subscribes          chan *subscribeRequest
+	unsubscribes        chan *unsubscribeRequest
 	subscriptionsByID   map[string]*subscription
 	subscriptionsByPath patricia.Trie
 }
@@ -148,8 +148,8 @@ func NewDB(core minisql.DB, schema string) (*db, error) {
 		},
 		db:                  core,
 		commits:             make(chan *commit, 100),
-		subscribes:          make(chan *subscription, 100),
-		unsubscribes:        make(chan string, 100),
+		subscribes:          make(chan *subscribeRequest, 100),
+		unsubscribes:        make(chan *unsubscribeRequest, 100),
 		subscriptionsByID:   make(map[string]*subscription),
 		subscriptionsByPath: *patricia.NewTrie(),
 	}

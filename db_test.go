@@ -87,6 +87,36 @@ func TestSubscriptions(t *testing.T) {
 				},
 				Deletes: []string{"p2", "p4"},
 			}, lastCS)
+
+		// unsubscribe
+		lastCS = nil
+		Unsubscribe(db, "s1")
+
+		err = Mutate(db, func(tx TX) error {
+			require.NoError(t, Put(tx, "p0", "0", ""), "value that should be picked up by any subscriber")
+			return nil
+		})
+		require.NoError(t, err)
+		require.Nil(t, lastCS)
+
+		// subscribe and request initial
+		Subscribe(db, &Subscription[string]{
+			ID:             "s2",
+			PathPrefixes:   []string{"p%"},
+			ReceiveInitial: true,
+			OnUpdate: func(cs *ChangeSet[string]) error {
+				lastCS = cs
+				return nil
+			},
+		})
+		require.EqualValues(t,
+			&ChangeSet[string]{
+				Updates: []*Item[*Raw[string]]{
+					{"p0", "", unloadedRaw(db.getSerde(), "0")},
+					{"p1", "", unloadedRaw(db.getSerde(), "1")},
+					{"p3", "", unloadedRaw(db.getSerde(), "3")},
+				},
+			}, lastCS)
 	})
 }
 
