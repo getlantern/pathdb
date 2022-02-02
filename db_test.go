@@ -14,17 +14,6 @@ var errTest = errors.New("test error")
 func TestTransactions(t *testing.T) {
 
 	withDB(t, func(db DB) {
-		var lastCS *ChangeSet[string]
-
-		Subscribe(db, &Subscription[string]{
-			ID:           "s1",
-			PathPrefixes: []string{"p%"},
-			OnUpdate: func(cs *ChangeSet[string]) error {
-				lastCS = cs
-				return nil
-			},
-		})
-
 		// put and commit something
 		err := Mutate(db, func(tx TX) error {
 			require.NoError(t, Put(tx, "path", "hello world", ""))
@@ -46,15 +35,6 @@ func TestTransactions(t *testing.T) {
 		require.Equal(t, unloadedRaw(db.getSerde(), "hello world"), rget[string](t, db, "path"))
 		require.Equal(t, unloadedRaw(db.getSerde(), "hello other world"), rget[string](t, db, "path2"))
 
-		// make sure subscriber was notified
-		require.EqualValues(t,
-			&ChangeSet[string]{
-				Updates: []*Item[*Raw[string]]{
-					{"path", "", loadedRaw(db.getSerde(), "hello world")},
-					{"path2", "", loadedRaw(db.getSerde(), "hello other world")},
-				},
-			}, lastCS)
-
 		// delete and rollback something
 		err = Mutate(db, func(tx TX) error {
 			require.NoError(t, Delete(tx, "path"))
@@ -64,6 +44,49 @@ func TestTransactions(t *testing.T) {
 		require.Equal(t, errTest, err)
 
 		require.Equal(t, "hello world", get[string](t, db, "path"), "delete should have been rolled back")
+	})
+}
+
+func TestSubscriptions(t *testing.T) {
+
+	withDB(t, func(db DB) {
+		var lastCS *ChangeSet[string]
+
+		Subscribe(db, &Subscription[string]{
+			ID:           "s1",
+			PathPrefixes: []string{"p%"},
+			OnUpdate: func(cs *ChangeSet[string]) error {
+				lastCS = cs
+				return nil
+			},
+		})
+
+		// put and commit something
+		err := Mutate(db, func(tx TX) error {
+			require.NoError(t, Put(tx, "p1", "0", ""), "initial value for p1")
+			require.NoError(t, Put(tx, "p1", "1", ""), "update p1")
+			require.NoError(t, Put(tx, "p2", "2", ""), "path which will be deleted")
+			require.NoError(t, Delete(tx, "p2"))
+			require.NoError(t, Put(tx, "p3", "3", ""), "path which will be deleted but later added")
+			require.NoError(t, Delete(tx, "p3"))
+			require.NoError(t, Put(tx, "p3", "3", ""), "path re-added")
+			require.NoError(t, Delete(tx, "p4"), "delete non-existent path")
+			require.NoError(t, Put(tx, "a1", "1", ""), "add path to which we're not subscribing")
+			require.NoError(t, Put(tx, "a2", "2", ""), "add path to which we're not subscribing which we'll delete")
+			require.NoError(t, Delete(tx, "a2"), "delete path to which we're not subscribing")
+			return nil
+		})
+		require.NoError(t, err)
+
+		// make sure subscriber was notified
+		require.EqualValues(t,
+			&ChangeSet[string]{
+				Updates: []*Item[*Raw[string]]{
+					{"p1", "", loadedRaw(db.getSerde(), "1")},
+					{"p3", "", loadedRaw(db.getSerde(), "3")},
+				},
+				Deletes: []string{"p2", "p4"},
+			}, lastCS)
 	})
 }
 
