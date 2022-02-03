@@ -116,21 +116,15 @@ func (d *db) onNewSubscription(sr *subscribeRequest) {
 	s := sr.s
 	defer close(sr.done)
 
-	d.subscriptionsByID[s.id] = s
 	for _, path := range s.pathPrefixes {
-		subs := d.getOrCreateSubscriptionsByPath(path)
-		subs[s.id] = s
-		d.subscriptionsByPath.Visit(func(prefix patricia.Prefix, item patricia.Item) error {
-			log.Debugf("prefix: %v", string(prefix))
-			return nil
-		})
+		d.getOrCreateSubscriptionsByPath(path)[s.id] = s
 
 		if s.receiveInitial {
 			items, err := RList[any](
 				d,
 				&QueryParams{
 					path:        fmt.Sprintf("%s%%", path),
-					joinDetails: s.joinDetails, // TODO actually make details subscriptions work
+					joinDetails: s.joinDetails,
 				},
 			)
 			if err != nil {
@@ -138,6 +132,10 @@ func (d *db) onNewSubscription(sr *subscribeRequest) {
 			} else {
 				for _, item := range items {
 					s.onUpdate(item)
+					if s.joinDetails {
+						// subscribe for updates to this detail path
+						d.getOrCreateDetailSubscriptionsByPath(item.DetailPath)[s.id] = s
+					}
 				}
 				err := s.flush()
 				if err != nil {
@@ -152,34 +150,60 @@ func (d *db) onDeleteSubscription(usr *unsubscribeRequest) {
 	id := usr.id
 	defer close(usr.done)
 
-	s, found := d.subscriptionsByID[id]
-	if !found {
-		return
-	}
-	for _, path := range s.pathPrefixes {
-		subs := d.getOrCreateSubscriptionsByPath(path)
-		delete(subs, s.id)
-		if len(subs) == 0 {
-			d.subscriptionsByPath.Delete(patricia.Prefix(path))
-		}
-	}
+	d.subscriptionsByPath.Visit(func(prefix patricia.Prefix, item patricia.Item) error {
+		subs := item.(map[string]*subscription)
+		delete(subs, id)
+		return nil
+	})
+	d.detailSubscriptionsByPath.Visit(func(prefix patricia.Prefix, item patricia.Item) error {
+		subs := item.(map[string]*subscription)
+		delete(subs, id)
+		return nil
+	})
 }
 
 func (d *db) onCommit(c *commit) {
-	log.Debugf("Updates: %v", c.t.updates)
 	dirty := make(map[string]*subscription, 0)
-	for path, u := range c.t.updates {
+	d.notifySubscribers(c.t, dirty, &d.subscriptionsByPath, false)
+	d.notifySubscribers(c.t, dirty, &d.detailSubscriptionsByPath, true)
+	for _, s := range dirty {
+		s.flush()
+	}
+}
+
+func (d *db) notifySubscribers(t *tx, dirty map[string]*subscription, subscriptionsByPath *patricia.Trie, isDetail bool) {
+	for path, u := range t.updates {
 		log.Debug(path)
-		_ = d.subscriptionsByPath.VisitPrefixes(patricia.Prefix(path), func(prefix patricia.Prefix, item patricia.Item) error {
+		_ = subscriptionsByPath.VisitPrefixes(patricia.Prefix(path), func(prefix patricia.Prefix, item patricia.Item) error {
 			for _, s := range item.(map[string]*subscription) {
-				s.onUpdate(u)
-				dirty[s.id] = s
+				if s.joinDetails && !isDetail {
+					// assume that this value is an index entry, go ahead and subscribe to the corresponding detail
+					_detailPath, err := u.Value.Value()
+					if err == nil {
+						detailPath, ok := _detailPath.(string)
+						if ok {
+							d.getOrCreateDetailSubscriptionsByPath(detailPath)[s.id] = s
+							detail, err := RGet[any](t, detailPath)
+							if err == nil {
+								u.Value = detail
+								u.DetailPath = detailPath
+								s.onUpdate(u)
+								dirty[s.id] = s
+							} else {
+								log.Debugf("Error reading detail: %v", err)
+							}
+						}
+					}
+				} else {
+					s.onUpdate(u)
+					dirty[s.id] = s
+				}
 			}
 			return nil
 		})
 	}
-	for path := range c.t.deletes {
-		_ = d.subscriptionsByPath.VisitPrefixes(patricia.Prefix(path), func(prefix patricia.Prefix, item patricia.Item) error {
+	for path := range t.deletes {
+		_ = subscriptionsByPath.VisitPrefixes(patricia.Prefix(path), func(prefix patricia.Prefix, item patricia.Item) error {
 			for _, s := range item.(map[string]*subscription) {
 				s.onDelete(path)
 				dirty[s.id] = s
@@ -187,19 +211,24 @@ func (d *db) onCommit(c *commit) {
 			return nil
 		})
 	}
-	for _, s := range dirty {
-		s.flush()
-	}
 }
 
 func (d *db) getOrCreateSubscriptionsByPath(path string) map[string]*subscription {
+	return doGetOrCreateSubscriptionsByPath(&d.subscriptionsByPath, path)
+}
+
+func (d *db) getOrCreateDetailSubscriptionsByPath(path string) map[string]*subscription {
+	return doGetOrCreateSubscriptionsByPath(&d.detailSubscriptionsByPath, path)
+}
+
+func doGetOrCreateSubscriptionsByPath(subscriptionsByPath *patricia.Trie, path string) map[string]*subscription {
 	var subs map[string]*subscription
-	_subs := d.subscriptionsByPath.Get(patricia.Prefix(path))
+	_subs := subscriptionsByPath.Get(patricia.Prefix(path))
 	if _subs != nil {
 		subs = _subs.(map[string]*subscription)
 	} else {
 		subs = make(map[string]*subscription, 1)
-		d.subscriptionsByPath.Insert(patricia.Prefix(path), subs)
+		subscriptionsByPath.Insert(patricia.Prefix(path), subs)
 	}
 	return subs
 }

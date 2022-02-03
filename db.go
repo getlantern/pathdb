@@ -90,12 +90,12 @@ type queryable struct {
 
 type db struct {
 	queryable
-	db                  minisql.DB
-	commits             chan *commit
-	subscribes          chan *subscribeRequest
-	unsubscribes        chan *unsubscribeRequest
-	subscriptionsByID   map[string]*subscription
-	subscriptionsByPath patricia.Trie
+	db                        minisql.DB
+	commits                   chan *commit
+	subscribes                chan *subscribeRequest
+	unsubscribes              chan *unsubscribeRequest
+	subscriptionsByPath       patricia.Trie
+	detailSubscriptionsByPath patricia.Trie
 }
 
 type tx struct {
@@ -146,12 +146,12 @@ func NewDB(core minisql.DB, schema string) (*db, error) {
 			schema: schema,
 			serde:  newSerde(),
 		},
-		db:                  core,
-		commits:             make(chan *commit, 100),
-		subscribes:          make(chan *subscribeRequest, 100),
-		unsubscribes:        make(chan *unsubscribeRequest, 100),
-		subscriptionsByID:   make(map[string]*subscription),
-		subscriptionsByPath: *patricia.NewTrie(),
+		db:                        core,
+		commits:                   make(chan *commit, 100),
+		subscribes:                make(chan *subscribeRequest, 100),
+		unsubscribes:              make(chan *unsubscribeRequest, 100),
+		subscriptionsByPath:       *patricia.NewTrie(),
+		detailSubscriptionsByPath: *patricia.NewTrie(),
 	}
 	go d.mainLoop()
 	return d, nil

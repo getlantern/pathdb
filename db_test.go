@@ -2,7 +2,9 @@ package pathdb
 
 import (
 	"errors"
+	"fmt"
 	"io/ioutil"
+	"math/rand"
 	"os"
 	"testing"
 
@@ -48,7 +50,6 @@ func TestTransactions(t *testing.T) {
 }
 
 func TestSubscriptions(t *testing.T) {
-
 	withDB(t, func(db DB) {
 		var lastCS *ChangeSet[string]
 
@@ -117,6 +118,66 @@ func TestSubscriptions(t *testing.T) {
 					{"p3", "", unloadedRaw(db.getSerde(), "3")},
 				},
 			}, lastCS)
+	})
+}
+
+func TestDetailSubscriptions(t *testing.T) {
+	withDB(t, func(db DB) {
+		// put some initial values
+		err := Mutate(db, func(tx TX) error {
+			require.NoError(t, Put(tx, "/detail/1", 1, ""))
+			require.NoError(t, Put(tx, "/detail/2", 2, ""))
+			require.NoError(t, Put(tx, "/index/1", "/detail/1", ""))
+			require.NoError(t, Put(tx, "/index/2", "/detail/2", ""))
+			require.NoError(t, Put(tx, "/index/3", "/detail/3", "index entry to non-existent detail"))
+			return nil
+		})
+		require.NoError(t, err)
+
+		testSubscription(
+			t,
+			db,
+			"subscribe to initial details",
+			&Subscription[int64]{
+				PathPrefixes:   []string{"/index/%"},
+				ReceiveInitial: true,
+				JoinDetails:    true,
+			},
+			&ChangeSet[int64]{
+				Updates: []*Item[*Raw[int64]]{
+					{"/index/1", "/detail/1", unloadedRaw(db.getSerde(), int64(1))},
+					{"/index/2", "/detail/2", unloadedRaw(db.getSerde(), int64(2))},
+				},
+			},
+			nil,
+		)
+	})
+}
+
+func testSubscription[T any](
+	t *testing.T,
+	db DB,
+	label string,
+	s *Subscription[T],
+	expected *ChangeSet[T],
+	update func(tx TX),
+) {
+	t.Run(label, func(t *testing.T) {
+		var lastCS *ChangeSet[T]
+		s.ID = fmt.Sprintf("%d", rand.Int())
+		s.OnUpdate = func(cs *ChangeSet[T]) error {
+			lastCS = cs
+			return nil
+		}
+		Subscribe(db, s)
+		defer Unsubscribe(db, s.ID)
+		if update != nil {
+			Mutate(db, func(tx TX) error {
+				update(tx)
+				return nil
+			})
+		}
+		require.EqualValues(t, expected, lastCS, "lastCS should equal expected")
 	})
 }
 
