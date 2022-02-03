@@ -8,8 +8,8 @@ import (
 )
 
 type ChangeSet[T any] struct {
-	Updates []*Item[*Raw[T]]
-	Deletes []string
+	Updates map[string]*Item[*Raw[T]]
+	Deletes map[string]bool
 }
 
 type Subscription[T any] struct {
@@ -64,21 +64,26 @@ func Subscribe[T any](d DB, sub *Subscription[T]) error {
 			if u.Value.value != nil {
 				v = u.Value.value.(T)
 			}
-			cs.Updates = append(cs.Updates,
-				&Item[*Raw[T]]{
-					Path:       u.Path,
-					DetailPath: u.DetailPath,
-					Value: &Raw[T]{
-						serde:  u.Value.serde,
-						Bytes:  u.Value.Bytes,
-						loaded: u.Value.loaded,
-						value:  v,
-						err:    u.Value.err,
-					},
-				})
+			if cs.Updates == nil {
+				cs.Updates = make(map[string]*Item[*Raw[T]])
+			}
+			cs.Updates[u.Path] = &Item[*Raw[T]]{
+				Path:       u.Path,
+				DetailPath: u.DetailPath,
+				Value: &Raw[T]{
+					serde:  u.Value.serde,
+					Bytes:  u.Value.Bytes,
+					loaded: u.Value.loaded,
+					value:  v,
+					err:    u.Value.err,
+				},
+			}
 		},
 		onDelete: func(p string) {
-			cs.Deletes = append(cs.Deletes, p)
+			if cs.Deletes == nil {
+				cs.Deletes = make(map[string]bool)
+			}
+			cs.Deletes[p] = true
 		},
 		flush: func() error {
 			err := sub.OnUpdate(cs)

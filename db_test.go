@@ -82,11 +82,11 @@ func TestSubscriptions(t *testing.T) {
 		// make sure subscriber was notified
 		require.EqualValues(t,
 			&ChangeSet[string]{
-				Updates: []*Item[*Raw[string]]{
-					{"p1", "", loadedRaw(db.getSerde(), "1")},
-					{"p3", "", loadedRaw(db.getSerde(), "3")},
+				Updates: map[string]*Item[*Raw[string]]{
+					"p1": {"p1", "", loadedRaw(db.getSerde(), "1")},
+					"p3": {"p3", "", loadedRaw(db.getSerde(), "3")},
 				},
-				Deletes: []string{"p2", "p4"},
+				Deletes: map[string]bool{"p2": true, "p4": true},
 			}, lastCS)
 
 		// unsubscribe
@@ -112,10 +112,10 @@ func TestSubscriptions(t *testing.T) {
 		})
 		require.EqualValues(t,
 			&ChangeSet[string]{
-				Updates: []*Item[*Raw[string]]{
-					{"p0", "", unloadedRaw(db.getSerde(), "0")},
-					{"p1", "", unloadedRaw(db.getSerde(), "1")},
-					{"p3", "", unloadedRaw(db.getSerde(), "3")},
+				Updates: map[string]*Item[*Raw[string]]{
+					"p0": {"p0", "", unloadedRaw(db.getSerde(), "0")},
+					"p1": {"p1", "", unloadedRaw(db.getSerde(), "1")},
+					"p3": {"p3", "", unloadedRaw(db.getSerde(), "3")},
 				},
 			}, lastCS)
 	})
@@ -144,9 +144,9 @@ func TestDetailSubscriptions(t *testing.T) {
 				JoinDetails:    true,
 			},
 			&ChangeSet[int64]{
-				Updates: []*Item[*Raw[int64]]{
-					{"/index/1", "/detail/1", unloadedRaw(db.getSerde(), int64(1))},
-					{"/index/2", "/detail/2", unloadedRaw(db.getSerde(), int64(2))},
+				Updates: map[string]*Item[*Raw[int64]]{
+					"/index/1": {"/index/1", "/detail/1", unloadedRaw(db.getSerde(), int64(1))},
+					"/index/2": {"/index/2", "/detail/2", unloadedRaw(db.getSerde(), int64(2))},
 				},
 			},
 			nil,
