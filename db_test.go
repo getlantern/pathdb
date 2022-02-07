@@ -428,6 +428,37 @@ func TestSearch(t *testing.T) {
 	})
 }
 
+func TestSearchChinese(t *testing.T) {
+	withDB(t, func(db DB) {
+		err := Mutate(db, func(tx TX) error {
+			require.NoError(t, Put(
+				tx,
+				"/item",
+				"当日，北京2022年冬奥会单板滑雪项目男子坡面障碍技巧决赛在张家口云顶滑雪公园举行。苏翊鸣夺得男子坡面障碍技巧银牌。",
+				"当日，北京2022年冬奥会单板滑雪项目男子坡面障碍技巧决赛在张家口云顶滑雪公园举行。苏翊鸣夺得男子坡面障碍技巧银牌。",
+			))
+			return nil
+		})
+		require.NoError(t, err)
+
+		require.EqualValues(t, []*SearchResult[string]{
+			{Item[string]{
+				"/item",
+				"",
+				"当日，北京2022年冬奥会单板滑雪项目男子坡面障碍技巧决赛在张家口云顶滑雪公园举行。苏翊鸣夺得男子坡面障碍技巧银牌。"},
+				"...22*年冬奥会*单板滑...",
+			},
+		}, search[string](
+			t,
+			db,
+			&QueryParams{path: "%"},
+			&SearchParams{search: "年冬奥会", numTokens: 7},
+		),
+			"match 年冬奥会 (winter olympics)  in larger sentence",
+		)
+	})
+}
+
 func withDB(t *testing.T, fn func(db DB)) {
 	file, err := ioutil.TempFile("", "")
 	require.NoError(t, err)
