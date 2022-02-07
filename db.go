@@ -24,11 +24,12 @@ type item struct {
 }
 
 type QueryParams struct {
-	path        string
-	start       int
-	count       int
-	reverseSort bool
-	joinDetails bool
+	path                string
+	start               int
+	count               int
+	reverseSort         bool
+	joinDetails         bool
+	includeEmptyDetails bool
 }
 
 func (query *QueryParams) ApplyDefaults() {
@@ -240,7 +241,11 @@ func (q *queryable) list(query *QueryParams, search *SearchParams) ([]*item, err
 		search.ApplyDefaults()
 		sql := fmt.Sprintf("SELECT d.path, d.value, snippet(%s_fts2, 0, ?, ?, ?, ?) FROM %s_fts2 f INNER JOIN %s_data d ON f.rowid = d.rowid WHERE d.path LIKE ? AND f.value MATCH ? ORDER BY f.rank LIMIT ? OFFSET ?", q.schema, q.schema, q.schema)
 		if query.joinDetails {
-			sql = fmt.Sprintf("SELECT l.path, d.path, d.value, snippet(%s_fts2, 0, ?, ?, ?, ?) FROM %s_fts2 f INNER JOIN %s_data d ON f.rowid = d.rowid INNER JOIN %s_data l ON l.value = d.path WHERE l.path LIKE ? AND SUBSTR(CAST(l.value AS TEXT), 1, 1) = 'T' AND f.value MATCH ? ORDER BY f.rank LIMIT ? OFFSET ?", q.schema, q.schema, q.schema, q.schema)
+			join := "INNER JOIN"
+			if query.includeEmptyDetails {
+				join = "RIGHT OUTER JOIN"
+			}
+			sql = fmt.Sprintf("SELECT l.path, l.value, d.value, snippet(%s_fts2, 0, ?, ?, ?, ?) FROM %s_fts2 f INNER JOIN %s_data d ON f.rowid = d.rowid %s %s_data l ON l.value = d.path WHERE l.path LIKE ? AND SUBSTR(CAST(l.value AS TEXT), 1, 1) = 'T' AND f.value MATCH ? ORDER BY f.rank LIMIT ? OFFSET ?", q.schema, q.schema, q.schema, join, q.schema)
 		}
 		rows, err = q.core.Query(
 			sql,
@@ -260,7 +265,11 @@ func (q *queryable) list(query *QueryParams, search *SearchParams) ([]*item, err
 		}
 		sql := fmt.Sprintf("SELECT path, value FROM %s_data WHERE path LIKE ? ORDER BY path %s LIMIT ? OFFSET ?", q.schema, sortOrder)
 		if query.joinDetails {
-			sql = fmt.Sprintf("SELECT l.path, d.path, d.value FROM %s_data l INNER JOIN %s_data d ON l.value = d.path WHERE l.path LIKE ? AND SUBSTR(CAST(l.value AS TEXT), 1, 1) = 'T' ORDER BY l.path %s LIMIT ? OFFSET ?", q.schema, q.schema, sortOrder)
+			join := "INNER JOIN"
+			if query.includeEmptyDetails {
+				join = "LEFT OUTER JOIN"
+			}
+			sql = fmt.Sprintf("SELECT l.path, l.value, d.value FROM %s_data l %s %s_data d ON l.value = d.path WHERE l.path LIKE ? AND SUBSTR(CAST(l.value AS TEXT), 1, 1) = 'T' ORDER BY l.path %s LIMIT ? OFFSET ?", q.schema, join, q.schema, sortOrder)
 		}
 		rows, err = q.core.Query(
 			sql,

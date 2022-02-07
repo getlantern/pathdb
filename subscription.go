@@ -25,8 +25,8 @@ type subscription struct {
 	pathPrefixes   []string
 	joinDetails    bool
 	receiveInitial bool
-	onUpdate       func(*Item[*Raw[any]])
-	onDelete       func(string)
+	onUpdate       func(item *Item[*Raw[any]], initial bool, isDetail bool)
+	onDelete       func(string, bool)
 	flush          func() error
 }
 
@@ -54,12 +54,28 @@ func Subscribe[T any](d DB, sub *Subscription[T]) error {
 	}
 	initChangeset()
 
+	reverseDetailPaths := make(map[string]string)
+
 	s := &subscription{
 		id:             sub.ID,
 		pathPrefixes:   sub.PathPrefixes,
 		joinDetails:    sub.JoinDetails,
 		receiveInitial: sub.ReceiveInitial,
-		onUpdate: func(u *Item[*Raw[any]]) {
+		onUpdate: func(u *Item[*Raw[any]], initial bool, isDetail bool) {
+			if sub.JoinDetails && !isDetail {
+				reverseDetailPaths[u.DetailPath] = u.Path
+			}
+
+			if initial && !sub.ReceiveInitial {
+				// don't record initial updates if subscriber didn't ask to ReceiveInitial
+				return
+			}
+
+			if u.Value == nil {
+				// this value was only included to give us a detail path, ignore
+				return
+			}
+
 			var v T
 			if u.Value.value != nil {
 				v = u.Value.value.(T)
@@ -67,9 +83,15 @@ func Subscribe[T any](d DB, sub *Subscription[T]) error {
 			if cs.Updates == nil {
 				cs.Updates = make(map[string]*Item[*Raw[T]])
 			}
-			cs.Updates[u.Path] = &Item[*Raw[T]]{
-				Path:       u.Path,
-				DetailPath: u.DetailPath,
+
+			path := u.Path
+			detailPath := u.DetailPath
+			if isDetail {
+				detailPath, path = path, reverseDetailPaths[path]
+			}
+			cs.Updates[path] = &Item[*Raw[T]]{
+				Path:       path,
+				DetailPath: detailPath,
 				Value: &Raw[T]{
 					serde:  u.Value.serde,
 					Bytes:  u.Value.Bytes,
@@ -78,17 +100,24 @@ func Subscribe[T any](d DB, sub *Subscription[T]) error {
 					err:    u.Value.err,
 				},
 			}
+
 		},
-		onDelete: func(p string) {
+		onDelete: func(p string, isDetail bool) {
 			if cs.Deletes == nil {
 				cs.Deletes = make(map[string]bool)
 			}
-			cs.Deletes[p] = true
+			if isDetail {
+				cs.Deletes[reverseDetailPaths[p]] = true
+			} else {
+				cs.Deletes[p] = true
+			}
 		},
-		flush: func() error {
-			err := sub.OnUpdate(cs)
-			initChangeset()
-			return err
+		flush: func() (err error) {
+			if len(cs.Updates) > 0 || len(cs.Deletes) > 0 {
+				err = sub.OnUpdate(cs)
+				initChangeset()
+			}
+			return
 		},
 	}
 	d.subscribe(s)
@@ -124,19 +153,20 @@ func (d *db) onNewSubscription(sr *subscribeRequest) {
 	for _, path := range s.pathPrefixes {
 		d.getOrCreateSubscriptionsByPath(path)[s.id] = s
 
-		if s.receiveInitial {
+		if s.receiveInitial || s.joinDetails {
 			items, err := RList[any](
 				d,
 				&QueryParams{
-					path:        fmt.Sprintf("%s%%", path),
-					joinDetails: s.joinDetails,
+					path:                fmt.Sprintf("%s%%", path),
+					joinDetails:         s.joinDetails,
+					includeEmptyDetails: true,
 				},
 			)
 			if err != nil {
 				log.Debugf("unable to list initial values for path prefix %v: %v", path, err)
 			} else {
 				for _, item := range items {
-					s.onUpdate(item)
+					s.onUpdate(item, true, false)
 					if s.joinDetails {
 						// subscribe for updates to this detail path
 						d.getOrCreateDetailSubscriptionsByPath(item.DetailPath)[s.id] = s
@@ -178,7 +208,6 @@ func (d *db) onCommit(c *commit) {
 
 func (d *db) notifySubscribers(t *tx, dirty map[string]*subscription, subscriptionsByPath *patricia.Trie, isDetail bool) {
 	for path, u := range t.updates {
-		log.Debug(path)
 		_ = subscriptionsByPath.VisitPrefixes(patricia.Prefix(path), func(prefix patricia.Prefix, item patricia.Item) error {
 			for _, s := range item.(map[string]*subscription) {
 				if s.joinDetails && !isDetail {
@@ -192,7 +221,7 @@ func (d *db) notifySubscribers(t *tx, dirty map[string]*subscription, subscripti
 							if err == nil {
 								u.Value = detail
 								u.DetailPath = detailPath
-								s.onUpdate(u)
+								s.onUpdate(u, false, isDetail)
 								dirty[s.id] = s
 							} else {
 								log.Debugf("Error reading detail: %v", err)
@@ -200,7 +229,7 @@ func (d *db) notifySubscribers(t *tx, dirty map[string]*subscription, subscripti
 						}
 					}
 				} else {
-					s.onUpdate(u)
+					s.onUpdate(u, false, isDetail)
 					dirty[s.id] = s
 				}
 			}
@@ -210,7 +239,7 @@ func (d *db) notifySubscribers(t *tx, dirty map[string]*subscription, subscripti
 	for path := range t.deletes {
 		_ = subscriptionsByPath.VisitPrefixes(patricia.Prefix(path), func(prefix patricia.Prefix, item patricia.Item) error {
 			for _, s := range item.(map[string]*subscription) {
-				s.onDelete(path)
+				s.onDelete(path, isDetail)
 				dirty[s.id] = s
 			}
 			return nil

@@ -193,12 +193,15 @@ func newItem[T any](s *serde, i *item) (*Item[T], error) {
 }
 
 func newRawItem[T any](s *serde, i *item) (*Item[*Raw[T]], error) {
-	return &Item[*Raw[T]]{
+	result := &Item[*Raw[T]]{
 		Path:       i.path,
 		DetailPath: i.detailPath,
-		Value: &Raw[T]{
+	}
+	if len(i.value) > 0 {
+		result.Value = &Raw[T]{
 			serde: s,
 			Bytes: i.value,
-		},
-	}, nil
+		}
+	}
+	return result, nil
 }
