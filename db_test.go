@@ -44,7 +44,15 @@ func TestTransactions(t *testing.T) {
 			return errTest
 		})
 		require.Equal(t, errTest, err)
+		require.Equal(t, "hello world", get[string](t, db, "path"), "delete should have been rolled back")
 
+		// delete through put
+		err = Mutate(db, func(tx TX) error {
+			require.NoError(t, Put[interface{}](tx, "path", nil, ""))
+			require.Empty(t, get[string](t, tx, "path"), "delete should be reflected in scope of ongoing transaction")
+			return errTest
+		})
+		require.Equal(t, errTest, err)
 		require.Equal(t, "hello world", get[string](t, db, "path"), "delete should have been rolled back")
 	})
 }
@@ -70,7 +78,7 @@ func TestSubscriptions(t *testing.T) {
 			require.NoError(t, Delete(tx, "p2"))
 			require.NoError(t, Put(tx, "p3", "3", ""), "path which will be deleted but later added")
 			require.NoError(t, Delete(tx, "p3"))
-			require.NoError(t, Put(tx, "p3", "3", ""), "path re-added")
+			require.NoError(t, PutRaw(tx, "p3", unloadedRaw(db.getSerde(), "3"), ""), "path re-added")
 			require.NoError(t, Delete(tx, "p4"), "delete non-existent path")
 			require.NoError(t, Put(tx, "a1", "1", ""), "add path to which we're not subscribing")
 			require.NoError(t, Put(tx, "a2", "2", ""), "add path to which we're not subscribing which we'll delete")
@@ -84,7 +92,7 @@ func TestSubscriptions(t *testing.T) {
 			&ChangeSet[string]{
 				Updates: map[string]*Item[*Raw[string]]{
 					"p1": {"p1", "", loadedRaw(db.getSerde(), "1")},
-					"p3": {"p3", "", loadedRaw(db.getSerde(), "3")},
+					"p3": {"p3", "", unloadedRaw(db.getSerde(), "3")},
 				},
 				Deletes: map[string]bool{"p2": true, "p4": true},
 			}, lastCS)

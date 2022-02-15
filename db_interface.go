@@ -47,11 +47,15 @@ func PutAll[T any](t TX, values map[string]T) error {
 }
 
 func Put[T any](t TX, path string, value T, fullText string) error {
-	return t.put(path, value, fullText, true)
+	return t.put(path, value, nil, fullText, true)
+}
+
+func PutRaw[T any](t TX, path string, value *Raw[T], fullText string) error {
+	return t.put(path, nil, value.Bytes, fullText, true)
 }
 
 func PutIfAbsent[T any](t TX, path string, value T, fullText string) (bool, error) {
-	err := t.put(path, value, fullText, false)
+	err := t.put(path, value, nil, fullText, false)
 	if err != nil {
 		sqlErr, ok := err.(sqlite3.Error)
 		if ok && errors.Is(sqlErr.Code, sqlite3.ErrConstraint) {

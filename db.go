@@ -77,7 +77,7 @@ type DB interface {
 
 type TX interface {
 	Queryable
-	put(path string, value interface{}, fullText string, updateIfPresent bool) error
+	put(path string, value interface{}, serializedValue []byte, fullText string, updateIfPresent bool) error
 	delete(path string) error
 	commit() error
 	rollback() error
@@ -322,14 +322,20 @@ func (q *queryable) list(query *QueryParams, search *SearchParams) ([]*item, err
 	return items, err
 }
 
-func (t *tx) put(path string, value interface{}, fullText string, updateIfPresent bool) error {
+func (t *tx) put(path string, value interface{}, serializedValue []byte, fullText string, updateIfPresent bool) error {
+	if value == nil && serializedValue == nil {
+		return t.delete(path)
+	}
+
 	serializedPath, err := t.serde.serialize(path)
 	if err != nil {
 		return err
 	}
-	serializedValue, err := t.serde.serialize(value)
-	if err != nil {
-		return err
+	if serializedValue == nil && value != nil {
+		serializedValue, err = t.serde.serialize(value)
+		if err != nil {
+			return err
+		}
 	}
 
 	saveUpdate := func() {
@@ -339,7 +345,7 @@ func (t *tx) put(path string, value interface{}, fullText string, updateIfPresen
 			Value: &Raw[any]{
 				serde:  t.serde,
 				Bytes:  serializedValue,
-				loaded: true,
+				loaded: value != nil,
 				value:  value,
 			},
 		}
