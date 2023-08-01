@@ -3,8 +3,9 @@ package pathdb
 import (
 	"database/sql"
 
-	"github.com/getlantern/pathdb/minisql"
 	_ "github.com/mattn/go-sqlite3"
+
+	"github.com/getlantern/pathdb/minisql"
 )
 
 func newSQLiteImpl(file string) (minisql.DB, error) {

@@ -5,9 +5,10 @@ import (
 	"fmt"
 	"math"
 
+	"github.com/tchap/go-patricia/v2/patricia"
+
 	"github.com/getlantern/golog"
 	"github.com/getlantern/pathdb/minisql"
-	"github.com/tchap/go-patricia/v2/patricia"
 )
 
 var log = golog.LoggerFor("pathdb")
@@ -84,14 +85,14 @@ type TX interface {
 }
 
 type queryable struct {
-	core   minisql.Queryable
+	core   *minisql.QueryableAPI
 	schema string
 	serde  *serde
 }
 
 type db struct {
 	queryable
-	db                        minisql.DB
+	db                        *minisql.DBAPI
 	commits                   chan *commit
 	subscribes                chan *subscribeRequest
 	unsubscribes              chan *unsubscribeRequest
@@ -102,7 +103,7 @@ type db struct {
 type tx struct {
 	queryable
 	commits chan *commit
-	tx      minisql.Tx
+	tx      *minisql.TxAPI
 	updates map[string]*Item[*Raw[any]]
 	deletes map[string]bool
 }
@@ -113,41 +114,43 @@ type commit struct {
 }
 
 func NewDB(core minisql.DB, schema string) (*db, error) {
+	_core := minisql.Wrap(core)
+
 	// All data is stored in a single table that has a TEXT path and a BLOB value. The table is
 	// stored as an index organized table (WITHOUT ROWID option) as a performance
 	// optimization for range scans on the path. To support full text indexing in a separate
 	// fts5 table, we include a manually managed INTEGER rowid to which we can join the fts5
 	// table. Rows that are not full text indexed leave rowid null to save space.
-	_, err := core.Exec(fmt.Sprintf("CREATE TABLE IF NOT EXISTS %s_data (path TEXT PRIMARY KEY, value BLOB, rowid INTEGER) WITHOUT ROWID", schema))
+	_, err := _core.Exec(fmt.Sprintf("CREATE TABLE IF NOT EXISTS %s_data (path TEXT PRIMARY KEY, value BLOB, rowid INTEGER) WITHOUT ROWID", schema))
 	if err != nil {
 		return nil, err
 	}
 
 	// Create an index on only text values to speed up detail lookups that join on path = value
-	_, err = core.Exec(fmt.Sprintf("CREATE INDEX IF NOT EXISTS %s_data_value_index ON %s_data(value) WHERE SUBSTR(CAST(value AS TEXT), 1, 1) = 'T'", schema, schema))
+	_, err = _core.Exec(fmt.Sprintf("CREATE INDEX IF NOT EXISTS %s_data_value_index ON %s_data(value) WHERE SUBSTR(CAST(value AS TEXT), 1, 1) = 'T'", schema, schema))
 	if err != nil {
 		return nil, err
 	}
 
 	// Create a table for full text search
-	_, err = core.Exec(fmt.Sprintf("CREATE VIRTUAL TABLE IF NOT EXISTS %s_fts2 USING fts5(value, tokenize='porter trigram')", schema))
+	_, err = _core.Exec(fmt.Sprintf("CREATE VIRTUAL TABLE IF NOT EXISTS %s_fts2 USING fts5(value, tokenize='porter trigram')", schema))
 	if err != nil {
 		return nil, err
 	}
 
 	// Create a table for managing custom counters (currently used only for full text indexing)
-	_, err = core.Exec(fmt.Sprintf("CREATE TABLE IF NOT EXISTS %s_counters (id INTEGER PRIMARY KEY, value INTEGER)", schema))
+	_, err = _core.Exec(fmt.Sprintf("CREATE TABLE IF NOT EXISTS %s_counters (id INTEGER PRIMARY KEY, value INTEGER)", schema))
 	if err != nil {
 		return nil, err
 	}
 
 	d := &db{
 		queryable: queryable{
-			core:   core,
+			core:   _core.QueryableAPI,
 			schema: schema,
 			serde:  newSerde(),
 		},
-		db:                        core,
+		db:                        _core,
 		commits:                   make(chan *commit, 100),
 		subscribes:                make(chan *subscribeRequest, 100),
 		unsubscribes:              make(chan *unsubscribeRequest, 100),
@@ -178,7 +181,7 @@ func (d *db) begin() (TX, error) {
 
 	return &tx{
 		queryable: queryable{
-			core:   _tx,
+			core:   _tx.QueryableAPI,
 			schema: d.schema,
 			serde:  d.serde,
 		},
@@ -235,7 +238,7 @@ func (q *queryable) list(query *QueryParams, search *SearchParams) ([]*item, err
 	}
 
 	query.ApplyDefaults()
-	var rows minisql.Rows
+	var rows minisql.ScannableRows
 	isSearch := search != nil
 	if isSearch {
 		search.ApplyDefaults()
