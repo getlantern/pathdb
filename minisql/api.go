@@ -1,5 +1,7 @@
 package minisql
 
+import "fmt"
+
 type ScannableRows interface {
 	Close() error
 	Next() bool
@@ -57,9 +59,23 @@ type scannableRows struct {
 }
 
 func (sr *scannableRows) Scan(args ...interface{}) error {
-	values := make(valueArray, 0, len(args))
-	for _, arg := range args {
-		values = append(values, valueFromPointer(arg))
-	}
+	values := convertToValueSlice(args...)
 	return sr.Rows.Scan(&valueArrayWrapper{values: values})
+}
+
+func convertToValueSlice(args ...interface{}) []*Value {
+	values := make([]*Value, 0, len(args))
+	for _, arg := range args {
+		switch v := arg.(type) {
+		case []byte:
+			values = append(values, NewValueBytes(v))
+		case string:
+			values = append(values, NewValueString(v))
+		case int:
+			values = append(values, NewValueInt(v))
+		default:
+			panic(fmt.Errorf("unsupported type provided: %T", v))
+		}
+	}
+	return values
 }

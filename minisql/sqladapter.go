@@ -39,7 +39,7 @@ func (tx *TxAdapter) Query(query string, args Values) (Rows, error) {
 func argsToParams(args Values) []interface{} {
 	params := make([]interface{}, 0, args.Len())
 	for i := 0; i < args.Len(); i++ {
-		params = append(params, args.Get(i).value())
+		params = append(params, args.Get(i).valueAsString())
 	}
 	return params
 }
@@ -51,7 +51,7 @@ type rowsAdapter struct {
 func (ra *rowsAdapter) Scan(values Values) error {
 	row := make([]interface{}, 0, values.Len())
 	for i := 0; i < values.Len(); i++ {
-		row = append(row, values.Get(i).pointerValue())
+		row = append(row, values.Get(i).valueAsString())
 	}
 	return ra.Rows.Scan(row...)
 }
