@@ -18,16 +18,16 @@ type SearchResult[T any] struct {
 }
 
 func Mutate(d DB, fn func(TX) error) error {
-	t, err := d.begin()
+	t, err := d.Begin()
 	if err != nil {
 		return err
 	}
 
 	err = fn(t)
 	if err == nil {
-		return t.commit()
+		return t.Commit()
 	} else {
-		rollbackErr := t.rollback()
+		rollbackErr := t.Rollback()
 		if rollbackErr != nil {
 			return rollbackErr
 		}
@@ -47,15 +47,15 @@ func PutAll[T any](t TX, values map[string]T) error {
 }
 
 func Put[T any](t TX, path string, value T, fullText string) error {
-	return t.put(path, value, nil, fullText, true)
+	return t.Put(path, value, nil, fullText, true)
 }
 
 func PutRaw[T any](t TX, path string, value *Raw[T], fullText string) error {
-	return t.put(path, nil, value.Bytes, fullText, true)
+	return t.Put(path, nil, value.Bytes, fullText, true)
 }
 
 func PutIfAbsent[T any](t TX, path string, value T, fullText string) (bool, error) {
-	err := t.put(path, value, nil, fullText, false)
+	err := t.Put(path, value, nil, fullText, false)
 	if err != nil {
 		sqlErr, ok := err.(sqlite3.Error)
 		if ok && errors.Is(sqlErr.Code, sqlite3.ErrConstraint) {
@@ -69,7 +69,7 @@ func PutIfAbsent[T any](t TX, path string, value T, fullText string) (bool, erro
 
 func GetOrPut[T any](t TX, path string, value T, fullText string) (result T, err error) {
 	var b []byte
-	b, err = t.get(path)
+	b, err = t.Get(path)
 	if err != nil {
 		return
 	}
@@ -87,7 +87,7 @@ func GetOrPut[T any](t TX, path string, value T, fullText string) (result T, err
 }
 
 func Delete(t TX, path string) error {
-	return t.delete(path)
+	return t.Delete(path)
 }
 
 func Get[T any](q Queryable, path string) (result T, err error) {
@@ -104,7 +104,7 @@ func Get[T any](q Queryable, path string) (result T, err error) {
 
 func RGet[T any](q Queryable, path string) (result *Raw[T], err error) {
 	var b []byte
-	b, err = q.get(path)
+	b, err = q.Get(path)
 	if err != nil {
 		return
 	}
@@ -167,7 +167,7 @@ func RSearch[T any](q Queryable, query *QueryParams, search *SearchParams) (resu
 
 func doSearch[I any](q Queryable, query *QueryParams, search *SearchParams, buildItem func(*item) (I, error)) (items []I, err error) {
 	var _items []*item
-	_items, err = q.list(query, search)
+	_items, err = q.List(query, search)
 	if err != nil {
 		return
 	}
