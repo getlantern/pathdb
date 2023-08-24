@@ -26,6 +26,7 @@ func (v *Value) String() string {
 }
 
 func (v *Value) SetString(s string) {
+	v.Type = ValueTypeString
 	*v.string = s
 }
 
@@ -37,6 +38,7 @@ func (v *Value) Int() int {
 }
 
 func (v *Value) SetInt(i int) {
+	v.Type = ValueTypeInt
 	*v.int = i
 }
 
@@ -46,7 +48,12 @@ func (v *Value) Bytes() []byte {
 	}
 	return *v.bytes
 }
-func (v *Value) SetBytes(b []byte) {
+
+func (v *Value) SetBytes(i []byte) {
+	v.Type = ValueTypeBytes
+	// Copy the bytes since the ones passed in are unsafe
+	var b = make([]byte, len(i))
+	copy(b, i)
 	*v.bytes = b
 }
 
@@ -63,7 +70,10 @@ func NewValue(i interface{}) *Value {
 }
 
 func NewValueBytes(i []byte) *Value {
-	return &Value{Type: ValueTypeBytes, bytes: &i}
+	// Copy the bytes since the ones passed in are unsafe
+	var b = make([]byte, len(i))
+	copy(b, i)
+	return &Value{Type: ValueTypeBytes, bytes: &b}
 }
 
 func NewValueString(i string) *Value {
@@ -131,7 +141,6 @@ func (v *Value) pointerToEmptyValue() interface{} {
 type Values interface {
 	Len() int
 	Get(index int) *Value
-	Set(index int, value *Value)
 }
 
 func NewValues(vals []interface{}) Values {
@@ -154,8 +163,4 @@ func (vaw *valueArrayWrapper) Len() int {
 
 func (vaw *valueArrayWrapper) Get(index int) *Value {
 	return vaw.values[index]
-}
-
-func (vaw *valueArrayWrapper) Set(index int, value *Value) {
-	vaw.values[index] = value
 }
