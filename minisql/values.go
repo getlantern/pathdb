@@ -126,6 +126,8 @@ func (v *Value) value() interface{} {
 		return *v.string
 	case ValueTypeInt:
 		return *v.int
+	case ValueTypeBool:
+		return *v.bool
 	default:
 		return nil
 	}
@@ -140,6 +142,8 @@ func (v *Value) set(i interface{}) {
 			v.SetString(*i.(*string))
 		case ValueTypeInt:
 			v.SetInt(*i.(*int))
+		case ValueTypeBool:
+			v.SetBool(*i.(*bool))
 		}
 	}
 }
