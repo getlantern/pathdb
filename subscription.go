@@ -120,15 +120,15 @@ func Subscribe[T any](d DB, sub *Subscription[T]) error {
 			return
 		},
 	}
-	d.subscribe(s)
+	d.Subscribe(s)
 	return nil
 }
 
 func Unsubscribe(d DB, id string) {
-	d.unsubscribe(id)
+	d.Unsubscribe(id)
 }
 
-func (d *db) subscribe(s *subscription) {
+func (d *db) Subscribe(s *subscription) {
 	sr := &subscribeRequest{
 		s:    s,
 		done: make(chan interface{}),
@@ -137,7 +137,7 @@ func (d *db) subscribe(s *subscription) {
 	<-sr.done
 }
 
-func (d *db) unsubscribe(id string) {
+func (d *db) Unsubscribe(id string) {
 	usr := &unsubscribeRequest{
 		id:   id,
 		done: make(chan interface{}),

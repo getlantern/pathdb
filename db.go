@@ -64,24 +64,24 @@ func (search *SearchParams) ApplyDefaults() {
 
 type Queryable interface {
 	getSerde() *serde
-	get(path string) ([]byte, error)
-	list(query *QueryParams, search *SearchParams) ([]*item, error)
+	Get(path string) ([]byte, error)
+	List(query *QueryParams, search *SearchParams) ([]*item, error)
 }
 
 type DB interface {
 	Queryable
-	begin() (TX, error)
-	withSchema(string) DB
-	subscribe(*subscription)
-	unsubscribe(string)
+	Begin() (TX, error)
+	WithSchema(string) DB
+	Subscribe(*subscription)
+	Unsubscribe(string)
 }
 
 type TX interface {
 	Queryable
-	put(path string, value interface{}, serializedValue []byte, fullText string, updateIfPresent bool) error
-	delete(path string) error
-	commit() error
-	rollback() error
+	Put(path string, value interface{}, serializedValue []byte, fullText string, updateIfPresent bool) error
+	Delete(path string) error
+	Commit() error
+	Rollback() error
 }
 
 type queryable struct {
@@ -113,7 +113,7 @@ type commit struct {
 	finished chan error
 }
 
-func NewDB(core minisql.DB, schema string) (*db, error) {
+func NewDB(core minisql.DB, schema string) (DB, error) {
 	_core := minisql.Wrap(core)
 
 	// All data is stored in a single table that has a TEXT path and a BLOB value. The table is
@@ -161,7 +161,7 @@ func NewDB(core minisql.DB, schema string) (*db, error) {
 	return d, nil
 }
 
-func (d *db) withSchema(schema string) DB {
+func (d *db) WithSchema(schema string) DB {
 	return &db{
 		queryable: queryable{
 			core:   d.core,
@@ -173,7 +173,7 @@ func (d *db) withSchema(schema string) DB {
 	}
 }
 
-func (d *db) begin() (TX, error) {
+func (d *db) Begin() (TX, error) {
 	_tx, err := d.db.Begin()
 	if err != nil {
 		return nil, err
@@ -210,7 +210,7 @@ func (q *queryable) getSerde() *serde {
 	return q.serde
 }
 
-func (q *queryable) get(path string) ([]byte, error) {
+func (q *queryable) Get(path string) ([]byte, error) {
 	serializedPath, err := q.serde.serialize(path)
 	if err != nil {
 		return nil, err
@@ -231,7 +231,7 @@ func (q *queryable) get(path string) ([]byte, error) {
 	return b, nil
 }
 
-func (q *queryable) list(query *QueryParams, search *SearchParams) ([]*item, error) {
+func (q *queryable) List(query *QueryParams, search *SearchParams) ([]*item, error) {
 	serializedPath, err := q.serde.serialize(query.path)
 	if err != nil {
 		return nil, err
@@ -325,9 +325,9 @@ func (q *queryable) list(query *QueryParams, search *SearchParams) ([]*item, err
 	return items, err
 }
 
-func (t *tx) put(path string, value interface{}, serializedValue []byte, fullText string, updateIfPresent bool) error {
+func (t *tx) Put(path string, value interface{}, serializedValue []byte, fullText string, updateIfPresent bool) error {
 	if value == nil && serializedValue == nil {
-		return t.delete(path)
+		return t.Delete(path)
 	}
 
 	serializedPath, err := t.serde.serialize(path)
@@ -425,7 +425,7 @@ func (t *tx) put(path string, value interface{}, serializedValue []byte, fullTex
 	return err
 }
 
-func (t *tx) delete(path string) error {
+func (t *tx) Delete(path string) error {
 	serializedPath, err := t.serde.serialize(path)
 	if err != nil {
 		return err
@@ -438,11 +438,11 @@ func (t *tx) delete(path string) error {
 	return err
 }
 
-func (t *tx) rollback() error {
+func (t *tx) Rollback() error {
 	return t.tx.Rollback()
 }
 
-func (t *tx) commit() error {
+func (t *tx) Commit() error {
 	// perform commit in mainLoop to avoid race conditions with registering listeners
 	commit := &commit{
 		t:        t,

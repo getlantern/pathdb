@@ -51,7 +51,13 @@ type rowsAdapter struct {
 func (ra *rowsAdapter) Scan(values Values) error {
 	row := make([]interface{}, 0, values.Len())
 	for i := 0; i < values.Len(); i++ {
-		row = append(row, values.Get(i).pointerValue())
+		row = append(row, values.Get(i).pointerToEmptyValue())
 	}
-	return ra.Rows.Scan(row...)
+	err := ra.Rows.Scan(row...)
+	if err == nil {
+		for i, ptv := range row {
+			values.Get(i).set(ptv)
+		}
+	}
+	return err
 }
