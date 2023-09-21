@@ -2,6 +2,7 @@ package pathdb
 
 import (
 	"errors"
+	"fmt"
 
 	"github.com/mattn/go-sqlite3"
 )
@@ -20,27 +21,30 @@ type SearchResult[T any] struct {
 func Mutate(d DB, fn func(TX) error) error {
 	t, err := d.Begin()
 	if err != nil {
-		return err
+		return fmt.Errorf("mutate: begin transaction: %w", err)
 	}
 
 	err = fn(t)
 	if err == nil {
-		return t.Commit()
+		err = t.Commit()
+		if err != nil {
+			return fmt.Errorf("mutate: commit transaction: %w", err)
+		}
+		return nil
 	} else {
 		rollbackErr := t.Rollback()
 		if rollbackErr != nil {
-			return rollbackErr
+			return fmt.Errorf("mutate: rollback transaction: %w", rollbackErr)
 		}
+		return fmt.Errorf("mutate: fn: %w", err)
 	}
-
-	return err
 }
 
 func PutAll[T any](t TX, values map[string]T) error {
 	for path, value := range values {
 		err := Put(t, path, value, "")
 		if err != nil {
-			return err
+			return fmt.Errorf("putall: put: %w", err)
 		}
 	}
 	return nil
@@ -57,56 +61,66 @@ func PutRaw[T any](t TX, path string, value *Raw[T], fullText string) error {
 func PutIfAbsent[T any](t TX, path string, value T, fullText string) (bool, error) {
 	err := t.Put(path, value, nil, fullText, false)
 	if err != nil {
-		sqlErr, ok := err.(sqlite3.Error)
+		var sqlErr sqlite3.Error
+		ok := errors.As(err, &sqlErr)
 		if ok && errors.Is(sqlErr.Code, sqlite3.ErrConstraint) {
 			// this means there was already a value at that path
 			return false, nil
 		}
-		return false, err
+		return false, fmt.Errorf("putifabsent: put: %w", err)
 	}
 	return true, nil
 }
 
-func GetOrPut[T any](t TX, path string, value T, fullText string) (result T, err error) {
-	var b []byte
-	b, err = t.Get(path)
+func GetOrPut[T any](t TX, path string, value T, fullText string) (T, error) {
+	var result T
+	b, err := t.Get(path)
 	if err != nil {
-		return
+		return result, fmt.Errorf("getorput: get: %w", err)
 	}
 	if b != nil {
 		var _result interface{}
 		_result, err = t.getSerde().deserialize(b)
-		if err == nil {
-			result = _result.(T)
+		if err != nil {
+			return result, fmt.Errorf("getorput: deserialize: %w", err)
 		}
-		return
+		result = _result.(T)
+		return result, nil
 	}
 	result = value
 	err = Put(t, path, value, fullText)
-	return
+	if err != nil {
+		return result, fmt.Errorf("getorput: put: %w", err)
+	}
+	return result, nil
 }
 
 func Delete(t TX, path string) error {
 	return t.Delete(path)
 }
 
-func Get[T any](q Queryable, path string) (result T, err error) {
+func Get[T any](q Queryable, path string) (T, error) {
+	var result T
 	var _result *Raw[T]
-	_result, err = RGet[T](q, path)
+	_result, err := RGet[T](q, path)
 	if err != nil {
-		return
+		return result, fmt.Errorf("get: rget: %w", err)
 	}
 	if _result != nil {
 		result, err = _result.Value()
+		if err != nil {
+			return result, fmt.Errorf("get: value: %w", err)
+		}
 	}
-	return
+	return result, nil
 }
 
-func RGet[T any](q Queryable, path string) (result *Raw[T], err error) {
+func RGet[T any](q Queryable, path string) (*Raw[T], error) {
+	var result *Raw[T]
 	var b []byte
-	b, err = q.Get(path)
+	b, err := q.Get(path)
 	if err != nil {
-		return
+		return result, fmt.Errorf("rget: get: %w", err)
 	}
 	if len(b) > 0 {
 		result = &Raw[T]{
@@ -114,62 +128,84 @@ func RGet[T any](q Queryable, path string) (result *Raw[T], err error) {
 			Bytes: b,
 		}
 	}
-	return
+	return result, nil
 }
 
-func List[T any](q Queryable, query *QueryParams) (result []*Item[T], err error) {
+func List[T any](q Queryable, query *QueryParams) ([]*Item[T], error) {
 	serde := q.getSerde()
-	return doSearch(q, query, nil, func(i *item) (*Item[T], error) {
-		return newItem[T](serde, i)
-	})
-}
-
-func RList[T any](q Queryable, query *QueryParams) (result []*Item[*Raw[T]], err error) {
-	serde := q.getSerde()
-	return doSearch(q, query, nil, func(i *item) (*Item[*Raw[T]], error) {
-		return newRawItem[T](serde, i)
-	})
-}
-
-func ListPaths(q Queryable, query *QueryParams) (result []string, err error) {
-	return doSearch(q, query, nil, func(i *item) (string, error) {
-		return i.path, nil
-	})
-}
-
-func Search[T any](q Queryable, query *QueryParams, search *SearchParams) (result []*SearchResult[T], err error) {
-	serde := q.getSerde()
-	return doSearch(q, query, search, func(i *item) (*SearchResult[T], error) {
+	result, err := doSearch(q, query, nil, func(i *item) (*Item[T], error) {
 		item, err := newItem[T](serde, i)
 		if err != nil {
-			return nil, err
+			return item, fmt.Errorf("list: dosearch: newitem: %w", err)
+		}
+		return item, nil
+	})
+	if err != nil {
+		return result, fmt.Errorf("list: dosearch: %w", err)
+	}
+	return result, nil
+}
+
+func RList[T any](q Queryable, query *QueryParams) ([]*Item[*Raw[T]], error) {
+	serde := q.getSerde()
+	result, err := doSearch(q, query, nil, func(i *item) (*Item[*Raw[T]], error) {
+		return newRawItem[T](serde, i), nil
+	})
+	if err != nil {
+		return result, fmt.Errorf("list: dosearch: %w", err)
+	}
+	return result, nil
+}
+
+func ListPaths(q Queryable, query *QueryParams) ([]string, error) {
+	result, err := doSearch(q, query, nil, func(i *item) (string, error) {
+		return i.path, nil
+	})
+	if err != nil {
+		return result, fmt.Errorf("list: dosearch: %w", err)
+	}
+	return result, nil
+}
+
+func Search[T any](q Queryable, query *QueryParams, search *SearchParams) ([]*SearchResult[T], error) {
+	serde := q.getSerde()
+	result, err := doSearch(q, query, search, func(i *item) (*SearchResult[T], error) {
+		item, err := newItem[T](serde, i)
+		if err != nil {
+			return nil, fmt.Errorf("search: dosearch: newitem: %w", err)
 		}
 		return &SearchResult[T]{
 			Item:    *item,
 			Snippet: i.snippet,
 		}, nil
 	})
+	if err != nil {
+		return result, fmt.Errorf("list: dosearch: %w", err)
+	}
+	return result, nil
 }
 
-func RSearch[T any](q Queryable, query *QueryParams, search *SearchParams) (result []*SearchResult[*Raw[T]], err error) {
+func RSearch[T any](q Queryable, query *QueryParams, search *SearchParams) ([]*SearchResult[*Raw[T]], error) {
 	serde := q.getSerde()
-	return doSearch(q, query, search, func(i *item) (*SearchResult[*Raw[T]], error) {
-		item, err := newRawItem[T](serde, i)
-		if err != nil {
-			return nil, err
-		}
+	result, err := doSearch(q, query, search, func(i *item) (*SearchResult[*Raw[T]], error) {
+		item := newRawItem[T](serde, i)
 		return &SearchResult[*Raw[T]]{
 			Item:    *item,
 			Snippet: i.snippet,
 		}, nil
 	})
+	if err != nil {
+		return result, fmt.Errorf("list: dosearch: %w", err)
+	}
+	return result, nil
 }
 
-func doSearch[I any](q Queryable, query *QueryParams, search *SearchParams, buildItem func(*item) (I, error)) (items []I, err error) {
+func doSearch[I any](q Queryable, query *QueryParams, search *SearchParams, buildItem func(*item) (I, error)) ([]I, error) {
+	var items []I
 	var _items []*item
-	_items, err = q.List(query, search)
+	_items, err := q.List(query, search)
 	if err != nil {
-		return
+		return items, fmt.Errorf("dosearch: list: %w", err)
 	}
 
 	items = make([]I, 0, len(_items))
@@ -177,17 +213,18 @@ func doSearch[I any](q Queryable, query *QueryParams, search *SearchParams, buil
 		var item I
 		item, err = buildItem(i)
 		if err != nil {
-			return
+			return items, fmt.Errorf("dosearch: builditem: %w", err)
 		}
 		items = append(items, item)
 	}
-	return
+
+	return items, nil
 }
 
 func newItem[T any](s *serde, i *item) (*Item[T], error) {
 	_value, err := s.deserialize(i.value)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("newitem: deserialize: %w", err)
 	}
 	return &Item[T]{
 		Path:       i.path,
@@ -196,7 +233,7 @@ func newItem[T any](s *serde, i *item) (*Item[T], error) {
 	}, nil
 }
 
-func newRawItem[T any](s *serde, i *item) (*Item[*Raw[T]], error) {
+func newRawItem[T any](s *serde, i *item) *Item[*Raw[T]] {
 	result := &Item[*Raw[T]]{
 		Path:       i.path,
 		DetailPath: i.detailPath,
@@ -207,5 +244,5 @@ func newRawItem[T any](s *serde, i *item) (*Item[*Raw[T]], error) {
 			Bytes: i.value,
 		}
 	}
-	return result, nil
+	return result
 }

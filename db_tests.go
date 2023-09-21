@@ -47,7 +47,7 @@ func TestTransactions(t TestingT, mdb minisql.DB) {
 			require.Empty(t, get[string](t, tx, "path"), "delete should be reflected in scope of ongoing transaction")
 			return errTest
 		})
-		require.Equal(t, errTest, err)
+		require.ErrorIs(t, err, errTest)
 		require.Equal(t, "hello world", get[string](t, db, "path"), "delete should have been rolled back")
 
 		// delete through put
@@ -56,7 +56,7 @@ func TestTransactions(t TestingT, mdb minisql.DB) {
 			require.Empty(t, get[string](t, tx, "path"), "delete should be reflected in scope of ongoing transaction")
 			return errTest
 		})
-		require.Equal(t, errTest, err)
+		require.ErrorIs(t, err, errTest)
 		require.Equal(t, "hello world", get[string](t, db, "path"), "delete should have been rolled back")
 	})
 }

@@ -123,25 +123,25 @@ func NewDB(core minisql.DB, schema string) (DB, error) {
 	// table. Rows that are not full text indexed leave rowid null to save space.
 	_, err := _core.Exec(fmt.Sprintf("CREATE TABLE IF NOT EXISTS %s_data (path TEXT PRIMARY KEY, value BLOB, rowid INTEGER) WITHOUT ROWID", schema))
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("newdb: create data table: %w", err)
 	}
 
 	// Create an index on only text values to speed up detail lookups that join on path = value
 	_, err = _core.Exec(fmt.Sprintf("CREATE INDEX IF NOT EXISTS %s_data_value_index ON %s_data(value) WHERE SUBSTR(CAST(value AS TEXT), 1, 1) = 'T'", schema, schema))
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("newdb: create data value index: %w", err)
 	}
 
 	// Create a table for full text search
 	_, err = _core.Exec(fmt.Sprintf("CREATE VIRTUAL TABLE IF NOT EXISTS %s_fts2 USING fts5(value, tokenize='porter trigram')", schema))
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("newdb: create search table: %w", err)
 	}
 
 	// Create a table for managing custom counters (currently used only for full text indexing)
 	_, err = _core.Exec(fmt.Sprintf("CREATE TABLE IF NOT EXISTS %s_counters (id INTEGER PRIMARY KEY, value INTEGER)", schema))
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("newdb: create counters table: %w", err)
 	}
 
 	d := &db{
@@ -176,7 +176,7 @@ func (d *db) WithSchema(schema string) DB {
 func (d *db) Begin() (TX, error) {
 	_tx, err := d.db.Begin()
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("begin: %w", err)
 	}
 
 	return &tx{
@@ -213,11 +213,11 @@ func (q *queryable) getSerde() *serde {
 func (q *queryable) Get(path string) ([]byte, error) {
 	serializedPath, err := q.serde.serialize(path)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("get: serialize path: %w", err)
 	}
 	rows, err := q.core.Query(fmt.Sprintf("SELECT value FROM %s_data WHERE path = ?", q.schema), serializedPath)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("get: query: %w", err)
 	}
 	defer rows.Close()
 	if !rows.Next() {
@@ -226,7 +226,7 @@ func (q *queryable) Get(path string) ([]byte, error) {
 	var b []byte
 	err = rows.Scan(&b)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("get: scan: %w", err)
 	}
 	return b, nil
 }
@@ -234,7 +234,7 @@ func (q *queryable) Get(path string) ([]byte, error) {
 func (q *queryable) List(query *QueryParams, search *SearchParams) ([]*item, error) {
 	serializedPath, err := q.serde.serialize(query.path)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("list: serialize path: %w", err)
 	}
 
 	query.ApplyDefaults()
@@ -282,7 +282,7 @@ func (q *queryable) List(query *QueryParams, search *SearchParams) ([]*item, err
 		)
 	}
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("list: query: %w", err)
 	}
 
 	defer rows.Close()
@@ -305,39 +305,43 @@ func (q *queryable) List(query *QueryParams, search *SearchParams) ([]*item, err
 			}
 		}
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("list: scan: %w", err)
 		}
 		path, err := q.serde.deserialize(_path)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("list: deserialize path: %w", err)
 		}
 		item.path = path.(string)
 		if _detailPath != nil {
 			detailPath, err := q.serde.deserialize(_detailPath)
 			if err != nil {
-				return nil, err
+				return nil, fmt.Errorf("list: deserialize detail path: %w", err)
 			}
 			item.detailPath = detailPath.(string)
 		}
 		items = append(items, item)
 	}
 
-	return items, err
+	return items, nil
 }
 
 func (t *tx) Put(path string, value interface{}, serializedValue []byte, fullText string, updateIfPresent bool) error {
 	if value == nil && serializedValue == nil {
-		return t.Delete(path)
+		err := t.Delete(path)
+		if err != nil {
+			return fmt.Errorf("put: delete: %w", err)
+		}
+		return nil
 	}
 
 	serializedPath, err := t.serde.serialize(path)
 	if err != nil {
-		return err
+		return fmt.Errorf("put: serialize path: %w", err)
 	}
 	if serializedValue == nil && value != nil {
 		serializedValue, err = t.serde.serialize(value)
 		if err != nil {
-			return err
+			return fmt.Errorf("put: serialize value: %w", err)
 		}
 	}
 
@@ -361,10 +365,11 @@ func (t *tx) Put(path string, value interface{}, serializedValue []byte, fullTex
 	if fullText == "" {
 		// not doing full text, simple path
 		_, err = t.tx.Exec(fmt.Sprintf("INSERT INTO %s_data(path, value) VALUES(?, ?)%s", t.schema, onConflictClause), serializedPath, serializedValue)
-		if err == nil {
-			saveUpdate()
+		if err != nil {
+			return fmt.Errorf("put: insert: %w", err)
 		}
-		return err
+		saveUpdate()
+		return nil
 	}
 
 	// get existing row ID for full text indexing
@@ -372,14 +377,14 @@ func (t *tx) Put(path string, value interface{}, serializedValue []byte, fullTex
 	isUpdate := false
 	rows, err := t.tx.Query(fmt.Sprintf("SELECT rowid FROM %s_data WHERE path = ?", t.schema), serializedPath)
 	if err != nil {
-		return err
+		return fmt.Errorf("put: select rowid: %w", err)
 	}
 	defer rows.Close()
 	if rows.Next() {
 		// record already exists, update index
 		err = rows.Scan(&existingRowID)
 		if err != nil {
-			return err
+			return fmt.Errorf("put: scan rowid: %w", err)
 		}
 		isUpdate = true
 	}
@@ -390,52 +395,56 @@ func (t *tx) Put(path string, value interface{}, serializedValue []byte, fullTex
 		// we're inserting a new row, get the next rowID from the sequence
 		_, err = t.tx.Exec(fmt.Sprintf("INSERT INTO %s_counters(id, value) VALUES(0, 0) ON CONFLICT(id) DO UPDATE SET value = value+1", t.schema))
 		if err != nil {
-			return err
+			return fmt.Errorf("put: increment sequence: %w", err)
 		}
 		rows, err = t.tx.Query(fmt.Sprintf("SELECT value FROM %s_counters WHERE id = 0", t.schema))
 		if err != nil {
-			return err
+			return fmt.Errorf("put: query sequence value: %w", err)
 		}
 		defer rows.Close()
 		if !rows.Next() {
-			return ErrUnexpectedDBError
+			return fmt.Errorf("put: read sequence value: %w", ErrUnexpectedDBError)
 		}
 		err = rows.Scan(&rowID)
 		if err != nil {
-			return err
+			return fmt.Errorf("put: scan sequence value: %w", err)
 		}
 	}
 
 	// insert value
 	_, err = t.tx.Exec(fmt.Sprintf("INSERT INTO %s_data(path, value, rowid) VALUES(?, ?, ?)%s", t.schema, onConflictClause), serializedPath, serializedValue, rowID)
 	if err != nil {
-		return err
+		return fmt.Errorf("put: insert indexed value: %w", err)
 	}
 
 	// maintain full text index
 	if !isUpdate {
 		_, err = t.tx.Exec(fmt.Sprintf("INSERT INTO %s_fts2(value, rowid) VALUES(?, ?)", t.schema), fullText, rowID)
-		return err
+		if err != nil {
+			return fmt.Errorf("put: insert into fts index: %w", err)
+		}
+		return nil
 	}
 	_, err = t.tx.Exec(fmt.Sprintf("UPDATE %s_fts2 SET value = ? where rowid = ?", t.schema), fullText, rowID)
-
-	if err == nil {
-		saveUpdate()
+	if err != nil {
+		return fmt.Errorf("put: update fts index: %w", err)
 	}
-	return err
+	saveUpdate()
+	return nil
 }
 
 func (t *tx) Delete(path string) error {
 	serializedPath, err := t.serde.serialize(path)
 	if err != nil {
-		return err
+		return fmt.Errorf("delete: serialize path: %w", err)
 	}
 	_, err = t.tx.Exec(fmt.Sprintf("DELETE FROM %s_data WHERE path = ?", t.schema), serializedPath)
-	if err == nil {
-		delete(t.updates, path)
-		t.deletes[path] = true
+	if err != nil {
+		return fmt.Errorf("delete: delete: %w", err)
 	}
-	return err
+	delete(t.updates, path)
+	t.deletes[path] = true
+	return nil
 }
 
 func (t *tx) Rollback() error {
