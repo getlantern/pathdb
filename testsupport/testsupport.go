@@ -16,7 +16,7 @@ import (
 var errTest = errors.New("test error")
 
 type TestingT interface {
-	Errorf(format string, args ...interface{})
+	Errorf(text string)
 	FailNow()
 }
 
@@ -24,42 +24,42 @@ func TestTransactions(t TestingT, mdb minisql.DB) {
 	withDB(t, mdb, func(db pathdb.DB) {
 		// put and commit something
 		err := pathdb.Mutate(db, func(tx pathdb.TX) error {
-			require.NoError(t, pathdb.Put(tx, "path", "hello world", ""))
+			require.NoError(adapt(t), pathdb.Put(tx, "path", "hello world", ""))
 			didPut, err := pathdb.PutIfAbsent(tx, "path", "hello overwritten world", "")
-			require.NoError(t, err)
-			require.False(t, didPut, "should not have put new value for path")
+			require.NoError(adapt(t), err)
+			require.False(adapt(t), didPut, "should not have put new value for path")
 			didPut, err = pathdb.PutIfAbsent(tx, "path2", "hello other world", "")
-			require.NoError(t, err)
-			require.True(t, didPut, "should have put value for new path2")
+			require.NoError(adapt(t), err)
+			require.True(adapt(t), didPut, "should have put value for new path2")
 			existing, err := pathdb.GetOrPut(tx, "path", "hello other overwritten world", "")
-			require.NoError(t, err)
-			require.EqualValues(t, "hello world", existing, "should have gotten existing value at path")
+			require.NoError(adapt(t), err)
+			require.EqualValues(adapt(t), "hello world", existing, "should have gotten existing value at path")
 			return nil
 		})
-		require.NoError(t, err)
+		require.NoError(adapt(t), err)
 
 		// make sure it can be read
-		require.Equal(t, "hello world", get[string](t, db, "path"))
-		require.Equal(t, pathdb.UnloadedRaw(db, "hello world"), rget[string](t, db, "path"))
-		require.Equal(t, pathdb.UnloadedRaw(db, "hello other world"), rget[string](t, db, "path2"))
+		require.Equal(adapt(t), "hello world", get[string](t, db, "path"))
+		require.Equal(adapt(t), pathdb.UnloadedRaw(db, "hello world"), rget[string](t, db, "path"))
+		require.Equal(adapt(t), pathdb.UnloadedRaw(db, "hello other world"), rget[string](t, db, "path2"))
 
 		// delete and rollback something
 		err = pathdb.Mutate(db, func(tx pathdb.TX) error {
-			require.NoError(t, pathdb.Delete(tx, "path"))
-			require.Empty(t, get[string](t, tx, "path"), "delete should be reflected in scope of ongoing transaction")
+			require.NoError(adapt(t), pathdb.Delete(tx, "path"))
+			require.Empty(adapt(t), get[string](t, tx, "path"), "delete should be reflected in scope of ongoing transaction")
 			return errTest
 		})
-		require.ErrorIs(t, err, errTest)
-		require.Equal(t, "hello world", get[string](t, db, "path"), "delete should have been rolled back")
+		require.ErrorIs(adapt(t), err, errTest)
+		require.Equal(adapt(t), "hello world", get[string](t, db, "path"), "delete should have been rolled back")
 
 		// delete through put
 		err = pathdb.Mutate(db, func(tx pathdb.TX) error {
-			require.NoError(t, pathdb.Put[interface{}](tx, "path", nil, ""))
-			require.Empty(t, get[string](t, tx, "path"), "delete should be reflected in scope of ongoing transaction")
+			require.NoError(adapt(t), pathdb.Put[interface{}](tx, "path", nil, ""))
+			require.Empty(adapt(t), get[string](t, tx, "path"), "delete should be reflected in scope of ongoing transaction")
 			return errTest
 		})
-		require.ErrorIs(t, err, errTest)
-		require.Equal(t, "hello world", get[string](t, db, "path"), "delete should have been rolled back")
+		require.ErrorIs(adapt(t), err, errTest)
+		require.Equal(adapt(t), "hello world", get[string](t, db, "path"), "delete should have been rolled back")
 	})
 }
 
@@ -78,23 +78,23 @@ func TestSubscriptions(t TestingT, mdb minisql.DB) {
 
 		// put and commit something
 		err := pathdb.Mutate(db, func(tx pathdb.TX) error {
-			require.NoError(t, pathdb.Put(tx, "p1", "0", ""), "initial value for p1")
-			require.NoError(t, pathdb.Put(tx, "p1", "1", ""), "update p1")
-			require.NoError(t, pathdb.Put(tx, "p2", "2", ""), "path which will be deleted")
-			require.NoError(t, pathdb.Delete(tx, "p2"))
-			require.NoError(t, pathdb.Put(tx, "p3", "3", ""), "path which will be deleted but later added")
-			require.NoError(t, pathdb.Delete(tx, "p3"))
-			require.NoError(t, pathdb.PutRaw(tx, "p3", pathdb.UnloadedRaw(db, "3"), ""), "path re-added")
-			require.NoError(t, pathdb.Delete(tx, "p4"), "delete non-existent path")
-			require.NoError(t, pathdb.Put(tx, "a1", "1", ""), "add path to which we're not subscribing")
-			require.NoError(t, pathdb.Put(tx, "a2", "2", ""), "add path to which we're not subscribing which we'll delete")
-			require.NoError(t, pathdb.Delete(tx, "a2"), "delete path to which we're not subscribing")
+			require.NoError(adapt(t), pathdb.Put(tx, "p1", "0", ""), "initial value for p1")
+			require.NoError(adapt(t), pathdb.Put(tx, "p1", "1", ""), "update p1")
+			require.NoError(adapt(t), pathdb.Put(tx, "p2", "2", ""), "path which will be deleted")
+			require.NoError(adapt(t), pathdb.Delete(tx, "p2"))
+			require.NoError(adapt(t), pathdb.Put(tx, "p3", "3", ""), "path which will be deleted but later added")
+			require.NoError(adapt(t), pathdb.Delete(tx, "p3"))
+			require.NoError(adapt(t), pathdb.PutRaw(tx, "p3", pathdb.UnloadedRaw(db, "3"), ""), "path re-added")
+			require.NoError(adapt(t), pathdb.Delete(tx, "p4"), "delete non-existent path")
+			require.NoError(adapt(t), pathdb.Put(tx, "a1", "1", ""), "add path to which we're not subscribing")
+			require.NoError(adapt(t), pathdb.Put(tx, "a2", "2", ""), "add path to which we're not subscribing which we'll delete")
+			require.NoError(adapt(t), pathdb.Delete(tx, "a2"), "delete path to which we're not subscribing")
 			return nil
 		})
-		require.NoError(t, err)
+		require.NoError(adapt(t), err)
 
 		// make sure subscriber was notified
-		require.EqualValues(t,
+		require.EqualValues(adapt(t),
 			&pathdb.ChangeSet[string]{
 				Updates: map[string]*pathdb.Item[*pathdb.Raw[string]]{
 					"p1": {"p1", "", pathdb.LoadedRaw(db, "1")},
@@ -108,11 +108,11 @@ func TestSubscriptions(t TestingT, mdb minisql.DB) {
 		pathdb.Unsubscribe(db, "s1")
 
 		err = pathdb.Mutate(db, func(tx pathdb.TX) error {
-			require.NoError(t, pathdb.Put(tx, "p0", "0", ""), "value that should be picked up by any subscriber")
+			require.NoError(adapt(t), pathdb.Put(tx, "p0", "0", ""), "value that should be picked up by any subscriber")
 			return nil
 		})
-		require.NoError(t, err)
-		require.Nil(t, lastCS)
+		require.NoError(adapt(t), err)
+		require.Nil(adapt(t), lastCS)
 
 		// subscribe and request initial
 		pathdb.Subscribe(db, &pathdb.Subscription[string]{
@@ -124,7 +124,7 @@ func TestSubscriptions(t TestingT, mdb minisql.DB) {
 				return nil
 			},
 		})
-		require.EqualValues(t,
+		require.EqualValues(adapt(t),
 			&pathdb.ChangeSet[string]{
 				Updates: map[string]*pathdb.Item[*pathdb.Raw[string]]{
 					"p0": {"p0", "", pathdb.UnloadedRaw(db, "0")},
@@ -168,8 +168,8 @@ func TestDetailSubscriptionModifyDetails(t TestingT, mdb minisql.DB) {
 			}
 		},
 		func(tx pathdb.TX) {
-			require.NoError(t, pathdb.Put(tx, "/detail/1", int64(11), ""))
-			require.NoError(t, pathdb.Delete(tx, "/detail/2"))
+			require.NoError(adapt(t), pathdb.Put(tx, "/detail/1", int64(11), ""))
+			require.NoError(adapt(t), pathdb.Delete(tx, "/detail/2"))
 		},
 	)
 }
@@ -189,9 +189,9 @@ func TestDetailSubscriptionModifyIndex(t TestingT, mdb minisql.DB) {
 			}
 		},
 		func(tx pathdb.TX) {
-			require.NoError(t, pathdb.Put(tx, "/index/1", "/detail/2", ""))
-			require.NoError(t, pathdb.Put(tx, "/detail/3", int64(3), ""))
-			require.NoError(t, pathdb.Delete(tx, "/index/2"))
+			require.NoError(adapt(t), pathdb.Put(tx, "/index/1", "/detail/2", ""))
+			require.NoError(adapt(t), pathdb.Put(tx, "/detail/3", int64(3), ""))
+			require.NoError(adapt(t), pathdb.Delete(tx, "/index/2"))
 		},
 	)
 }
@@ -206,14 +206,14 @@ func TestSubscription(
 	withDB(t, mdb, func(db pathdb.DB) {
 		// put some initial values
 		err := pathdb.Mutate(db, func(tx pathdb.TX) error {
-			require.NoError(t, pathdb.Put(tx, "/detail/1", int64(1), ""))
-			require.NoError(t, pathdb.Put(tx, "/detail/2", int64(2), ""))
-			require.NoError(t, pathdb.Put(tx, "/index/1", "/detail/1", ""))
-			require.NoError(t, pathdb.Put(tx, "/index/2", "/detail/2", ""))
-			require.NoError(t, pathdb.Put(tx, "/index/3", "/detail/3", "index entry to non-existent detail"))
+			require.NoError(adapt(t), pathdb.Put(tx, "/detail/1", int64(1), ""))
+			require.NoError(adapt(t), pathdb.Put(tx, "/detail/2", int64(2), ""))
+			require.NoError(adapt(t), pathdb.Put(tx, "/index/1", "/detail/1", ""))
+			require.NoError(adapt(t), pathdb.Put(tx, "/index/2", "/detail/2", ""))
+			require.NoError(adapt(t), pathdb.Put(tx, "/index/3", "/detail/3", "index entry to non-existent detail"))
 			return nil
 		})
-		require.NoError(t, err)
+		require.NoError(adapt(t), err)
 
 		var lastCS *pathdb.ChangeSet[int64]
 		s := &pathdb.Subscription[int64]{
@@ -234,7 +234,7 @@ func TestSubscription(
 				return nil
 			})
 		}
-		require.EqualValues(t, expected(db), lastCS, "lastCS should equal expected")
+		require.EqualValues(adapt(t), expected(db), lastCS, "lastCS should equal expected")
 	})
 }
 
@@ -253,11 +253,11 @@ func TestList(t TestingT, mdb minisql.DB) {
 				"/messages/b": "Message B",
 			})
 		})
-		require.NoError(t, err)
+		require.NoError(adapt(t), err)
 
-		require.EqualValues(t, "That Person", get[string](t, db, "/contacts/32af234asdf324"))
+		require.EqualValues(adapt(t), "That Person", get[string](t, db, "/contacts/32af234asdf324"))
 
-		require.EqualValues(t, []*pathdb.Item[string]{
+		require.EqualValues(adapt(t), []*pathdb.Item[string]{
 			{"/messages/a", "", "Message A"},
 			{"/messages/b", "", "Message B"},
 			{"/messages/c", "", "Message C"},
@@ -266,7 +266,7 @@ func TestList(t TestingT, mdb minisql.DB) {
 			"items should be ordered ascending by path",
 		)
 
-		require.EqualValues(t, []*pathdb.Item[string]{
+		require.EqualValues(adapt(t), []*pathdb.Item[string]{
 			{"/messages/d", "", "Message D"},
 			{"/messages/c", "", "Message C"},
 			{"/messages/b", "", "Message B"},
@@ -275,7 +275,7 @@ func TestList(t TestingT, mdb minisql.DB) {
 			"items should be ordered descending by path",
 		)
 
-		require.EqualValues(t, []*pathdb.Item[*pathdb.Raw[string]]{
+		require.EqualValues(adapt(t), []*pathdb.Item[*pathdb.Raw[string]]{
 			{"/messages/a", "", pathdb.UnloadedRaw(db, "Message A")},
 			{"/messages/b", "", pathdb.UnloadedRaw(db, "Message B")},
 			{"/messages/c", "", pathdb.UnloadedRaw(db, "Message C")},
@@ -284,7 +284,7 @@ func TestList(t TestingT, mdb minisql.DB) {
 			"should be able to retrieve raw items",
 		)
 
-		require.EqualValues(t, []*pathdb.Item[string]{
+		require.EqualValues(adapt(t), []*pathdb.Item[string]{
 			{"/contacts/32af234asdf324/messages_by_timestamp/3", "/messages/b", "Message B"},
 			{"/contacts/32af234asdf324/messages_by_timestamp/2", "/messages/a", "Message A"},
 			{"/contacts/32af234asdf324/messages_by_timestamp/1", "/messages/c", "Message C"},
@@ -298,7 +298,7 @@ func TestList(t TestingT, mdb minisql.DB) {
 			"wildcard detail query should return the right items",
 		)
 
-		require.EqualValues(t, []*pathdb.Item[string]{
+		require.EqualValues(adapt(t), []*pathdb.Item[string]{
 			{"/contacts/32af234asdf324/messages_by_timestamp/2", "/messages/a", "Message A"},
 		}, list[string](t, db, &pathdb.QueryParams{
 			Path:        "/contacts/32af234asdf324/messages_by_timestamp/2",
@@ -310,7 +310,7 @@ func TestList(t TestingT, mdb minisql.DB) {
 			"specific detail query should return the right items",
 		)
 
-		require.EqualValues(t, []*pathdb.Item[string]{
+		require.EqualValues(adapt(t), []*pathdb.Item[string]{
 			{"/contacts/32af234asdf324/messages_by_timestamp/2", "/messages/a", "Message A"},
 		}, list[string](t, db, &pathdb.QueryParams{
 			Path:        "/contacts/32af234asdf324/messages_by_timestamp/%",
@@ -321,7 +321,7 @@ func TestList(t TestingT, mdb minisql.DB) {
 			"detail query respects start and count",
 		)
 
-		require.EqualValues(t, []string{
+		require.EqualValues(adapt(t), []string{
 			"/messages/b",
 		}, listPaths(t, db, &pathdb.QueryParams{
 			Path:  "/messages/%",
@@ -336,10 +336,10 @@ func TestList(t TestingT, mdb minisql.DB) {
 func TestSearch(t TestingT, mdb minisql.DB) {
 	withDB(t, mdb, func(db pathdb.DB) {
 		err := pathdb.Mutate(db, func(tx pathdb.TX) error {
-			require.NoError(t, pathdb.Put(tx, "/messages/c", "Message C blah blah", "Message C blah blah"))
-			require.NoError(t, pathdb.Put(tx, "/messages/d", "Message D blah blah blah", "Message D blah blah blah"))
-			require.NoError(t, pathdb.Put(tx, "/messages/a", "Message A blah", "Message A blah"))
-			require.NoError(t, pathdb.Put(tx, "/messages/b", "Message B", "Message B"))
+			require.NoError(adapt(t), pathdb.Put(tx, "/messages/c", "Message C blah blah", "Message C blah blah"))
+			require.NoError(adapt(t), pathdb.Put(tx, "/messages/d", "Message D blah blah blah", "Message D blah blah blah"))
+			require.NoError(adapt(t), pathdb.Put(tx, "/messages/a", "Message A blah", "Message A blah"))
+			require.NoError(adapt(t), pathdb.Put(tx, "/messages/b", "Message B", "Message B"))
 			return pathdb.PutAll(tx, map[string]string{
 				"/linktomessage/1": "/messages/d",
 				"/linktomessage/2": "/messages/c",
@@ -347,16 +347,16 @@ func TestSearch(t TestingT, mdb minisql.DB) {
 				"/linktomessage/4": "/messages/a",
 			})
 		})
-		require.NoError(t, err)
+		require.NoError(adapt(t), err)
 
-		require.EqualValues(t, []*pathdb.Item[string]{
+		require.EqualValues(adapt(t), []*pathdb.Item[string]{
 			{"/messages/a", "", "Message A blah"},
 			{"/messages/b", "", "Message B"},
 			{"/messages/c", "", "Message C blah blah"},
 			{"/messages/d", "", "Message D blah blah blah"},
 		}, list[string](t, db, &pathdb.QueryParams{Path: "/messages/%"}))
 
-		require.EqualValues(t, []*pathdb.SearchResult[string]{
+		require.EqualValues(adapt(t), []*pathdb.SearchResult[string]{
 			{pathdb.Item[string]{"/messages/d", "", "Message D blah blah blah"}, "...*bla*h *bla*h..."},
 			{pathdb.Item[string]{"/messages/c", "", "Message C blah blah"}, "...*bla*h *bla*h"},
 			{pathdb.Item[string]{"/messages/a", "", "Message A blah"}, "...ge A *bla*h"},
@@ -369,7 +369,7 @@ func TestSearch(t TestingT, mdb minisql.DB) {
 			"prefix match with highlighting",
 		)
 
-		require.EqualValues(t, []*pathdb.SearchResult[*pathdb.Raw[string]]{
+		require.EqualValues(adapt(t), []*pathdb.SearchResult[*pathdb.Raw[string]]{
 			{pathdb.Item[*pathdb.Raw[string]]{"/messages/d", "", pathdb.UnloadedRaw(db, "Message D blah blah blah")}, "...*bla*h *bla*h..."},
 			{pathdb.Item[*pathdb.Raw[string]]{"/messages/c", "", pathdb.UnloadedRaw(db, "Message C blah blah")}, "...*bla*h *bla*h"},
 			{pathdb.Item[*pathdb.Raw[string]]{"/messages/a", "", pathdb.UnloadedRaw(db, "Message A blah")}, "...ge A *bla*h"},
@@ -382,7 +382,7 @@ func TestSearch(t TestingT, mdb minisql.DB) {
 			"raw prefix match with highlighting",
 		)
 
-		require.EqualValues(t, []*pathdb.SearchResult[string]{
+		require.EqualValues(adapt(t), []*pathdb.SearchResult[string]{
 			{pathdb.Item[string]{"/linktomessage/1", "/messages/d", "Message D blah blah blah"}, "...*bla*h *bla*h..."},
 			{pathdb.Item[string]{"/linktomessage/2", "/messages/c", "Message C blah blah"}, "...*bla*h *bla*h"},
 			{pathdb.Item[string]{"/linktomessage/4", "/messages/a", "Message A blah"}, "...ge A *bla*h"},
@@ -397,16 +397,16 @@ func TestSearch(t TestingT, mdb minisql.DB) {
 
 		err = pathdb.Mutate(db, func(tx pathdb.TX) error {
 			// delete an entry including the full text index
-			require.NoError(t, pathdb.Delete(tx, "/messages/d"))
+			require.NoError(adapt(t), pathdb.Delete(tx, "/messages/d"))
 			// add the entry back without full-text indexing to make sure it doesn't show up in results
-			require.NoError(t, pathdb.Put(tx, "/messages/d", "Message D blah blah blah", ""))
+			require.NoError(adapt(t), pathdb.Put(tx, "/messages/d", "Message D blah blah blah", ""))
 			// delete another entry without deleting the full text index
-			require.NoError(t, pathdb.Delete(tx, "/messages/c"))
+			require.NoError(adapt(t), pathdb.Delete(tx, "/messages/c"))
 			return nil
 		})
-		require.NoError(t, err)
+		require.NoError(adapt(t), err)
 
-		require.EqualValues(t, []*pathdb.SearchResult[string]{
+		require.EqualValues(adapt(t), []*pathdb.SearchResult[string]{
 			{pathdb.Item[string]{"/messages/a", "", "Message A blah"}, "...*bla*..."},
 		}, search[string](
 			t,
@@ -419,12 +419,12 @@ func TestSearch(t TestingT, mdb minisql.DB) {
 
 		// now update
 		err = pathdb.Mutate(db, func(tx pathdb.TX) error {
-			require.NoError(t, pathdb.Put(tx, "/messages/a", "Message A is different now", "Message A is different now"))
+			require.NoError(adapt(t), pathdb.Put(tx, "/messages/a", "Message A is different now", "Message A is different now"))
 			return nil
 		})
-		require.NoError(t, err)
+		require.NoError(adapt(t), err)
 
-		require.Empty(t, search[string](
+		require.Empty(adapt(t), search[string](
 			t,
 			db,
 			&pathdb.QueryParams{Path: "/messages/%"},
@@ -433,7 +433,7 @@ func TestSearch(t TestingT, mdb minisql.DB) {
 			"results exclude updated fulltext",
 		)
 
-		require.EqualValues(t, []*pathdb.SearchResult[string]{
+		require.EqualValues(adapt(t), []*pathdb.SearchResult[string]{
 			{pathdb.Item[string]{"/messages/a", "", "Message A is different now"}, "Message A is *diff*erent now"},
 		}, search[string](
 			t,
@@ -449,7 +449,7 @@ func TestSearch(t TestingT, mdb minisql.DB) {
 func TestSearchChinese(t TestingT, mdb minisql.DB) {
 	withDB(t, mdb, func(db pathdb.DB) {
 		err := pathdb.Mutate(db, func(tx pathdb.TX) error {
-			require.NoError(t, pathdb.Put(
+			require.NoError(adapt(t), pathdb.Put(
 				tx,
 				"/item",
 				"当日，北京2022年冬奥会单板滑雪项目男子坡面障碍技巧决赛在张家口云顶滑雪公园举行。苏翊鸣夺得男子坡面障碍技巧银牌。",
@@ -457,9 +457,9 @@ func TestSearchChinese(t TestingT, mdb minisql.DB) {
 			))
 			return nil
 		})
-		require.NoError(t, err)
+		require.NoError(adapt(t), err)
 
-		require.EqualValues(t, []*pathdb.SearchResult[string]{
+		require.EqualValues(adapt(t), []*pathdb.SearchResult[string]{
 			{pathdb.Item[string]{
 				"/item",
 				"",
@@ -479,52 +479,52 @@ func TestSearchChinese(t TestingT, mdb minisql.DB) {
 
 func withDB(t TestingT, mdb minisql.DB, fn func(db pathdb.DB)) {
 	file, err := ioutil.TempFile("", "")
-	require.NoError(t, err)
+	require.NoError(adapt(t), err)
 	defer panicOnError(os.Remove(file.Name()))
 	db, err := pathdb.NewDB(mdb, "test")
-	require.NoError(t, err)
+	require.NoError(adapt(t), err)
 	fn(db)
 }
 
 func get[T any](t TestingT, q pathdb.Queryable, path string) T {
 	result, err := pathdb.Get[T](q, path)
-	require.NoError(t, err)
+	require.NoError(adapt(t), err)
 	return result
 }
 
 func rget[T any](t TestingT, q pathdb.Queryable, path string) *pathdb.Raw[T] {
 	result, err := pathdb.RGet[T](q, path)
-	require.NoError(t, err)
+	require.NoError(adapt(t), err)
 	return result
 }
 
 func list[T any](t TestingT, q pathdb.Queryable, query *pathdb.QueryParams) []*pathdb.Item[T] {
 	result, err := pathdb.List[T](q, query)
-	require.NoError(t, err)
+	require.NoError(adapt(t), err)
 	return result
 }
 
 func listPaths(t TestingT, q pathdb.Queryable, query *pathdb.QueryParams) []string {
 	result, err := pathdb.ListPaths(q, query)
-	require.NoError(t, err)
+	require.NoError(adapt(t), err)
 	return result
 }
 
 func rlist[T any](t TestingT, q pathdb.Queryable, query *pathdb.QueryParams) []*pathdb.Item[*pathdb.Raw[T]] {
 	result, err := pathdb.RList[T](q, query)
-	require.NoError(t, err)
+	require.NoError(adapt(t), err)
 	return result
 }
 
 func search[T any](t TestingT, q pathdb.Queryable, query *pathdb.QueryParams, search *pathdb.SearchParams) []*pathdb.SearchResult[T] {
 	result, err := pathdb.Search[T](q, query, search)
-	require.NoError(t, err)
+	require.NoError(adapt(t), err)
 	return result
 }
 
 func rsearch[T any](t TestingT, q pathdb.Queryable, query *pathdb.QueryParams, search *pathdb.SearchParams) []*pathdb.SearchResult[*pathdb.Raw[T]] {
 	result, err := pathdb.RSearch[T](q, query, search)
-	require.NoError(t, err)
+	require.NoError(adapt(t), err)
 	return result
 }
 
@@ -532,4 +532,16 @@ func panicOnError(err error) {
 	if err != nil {
 		panic(err)
 	}
+}
+
+func adapt(t TestingT) require.TestingT {
+	return &testingTAdapter{t}
+}
+
+type testingTAdapter struct {
+	TestingT
+}
+
+func (ta *testingTAdapter) Errorf(format string, args ...interface{}) {
+	ta.TestingT.Errorf(fmt.Sprintf(format, args...))
 }
