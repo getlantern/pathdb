@@ -1,4 +1,4 @@
-package tests
+package testsupport
 
 import (
 	"errors"
