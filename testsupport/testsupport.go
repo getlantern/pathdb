@@ -16,7 +16,8 @@ import (
 var errTest = errors.New("test error")
 
 type TestingT interface {
-	require.TestingT
+	Errorf(format string, args ...interface{})
+	FailNow()
 }
 
 func TestTransactions(t TestingT, mdb minisql.DB) {
