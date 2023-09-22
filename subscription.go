@@ -157,9 +157,9 @@ func (d *db) onNewSubscription(sr *subscribeRequest) {
 			items, err := RList[any](
 				d,
 				&QueryParams{
-					path:                fmt.Sprintf("%s%%", path),
-					joinDetails:         s.joinDetails,
-					includeEmptyDetails: true,
+					Path:                fmt.Sprintf("%s%%", path),
+					JoinDetails:         s.joinDetails,
+					IncludeEmptyDetails: true,
 				},
 			)
 			if err != nil {

@@ -25,40 +25,40 @@ type item struct {
 }
 
 type QueryParams struct {
-	path                string
-	start               int
-	count               int
-	reverseSort         bool
-	joinDetails         bool
-	includeEmptyDetails bool
+	Path                string
+	Start               int
+	Count               int
+	ReverseSort         bool
+	JoinDetails         bool
+	IncludeEmptyDetails bool
 }
 
 func (query *QueryParams) ApplyDefaults() {
-	if query.count == 0 {
-		query.count = math.MaxInt32
+	if query.Count == 0 {
+		query.Count = math.MaxInt32
 	}
 }
 
 type SearchParams struct {
-	search         string
-	highlightStart string
-	highlightEnd   string
-	ellipses       string
-	numTokens      int
+	Search         string
+	HighlightStart string
+	HighlightEnd   string
+	Ellipses       string
+	NumTokens      int
 }
 
 func (search *SearchParams) ApplyDefaults() {
-	if search.highlightStart == "" {
-		search.highlightStart = "*"
+	if search.HighlightStart == "" {
+		search.HighlightStart = "*"
 	}
-	if search.highlightEnd == "" {
-		search.highlightEnd = "*"
+	if search.HighlightEnd == "" {
+		search.HighlightEnd = "*"
 	}
-	if search.ellipses == "" {
-		search.ellipses = "..."
+	if search.Ellipses == "" {
+		search.Ellipses = "..."
 	}
-	if search.numTokens <= 0 {
-		search.numTokens = 64
+	if search.NumTokens <= 0 {
+		search.NumTokens = 64
 	}
 }
 
@@ -232,7 +232,7 @@ func (q *queryable) Get(path string) ([]byte, error) {
 }
 
 func (q *queryable) List(query *QueryParams, search *SearchParams) ([]*item, error) {
-	serializedPath, err := q.serde.serialize(query.path)
+	serializedPath, err := q.serde.serialize(query.Path)
 	if err != nil {
 		return nil, fmt.Errorf("list: serialize path: %w", err)
 	}
@@ -243,33 +243,33 @@ func (q *queryable) List(query *QueryParams, search *SearchParams) ([]*item, err
 	if isSearch {
 		search.ApplyDefaults()
 		sql := fmt.Sprintf("SELECT d.path, d.value, snippet(%s_fts2, 0, ?, ?, ?, ?) FROM %s_fts2 f INNER JOIN %s_data d ON f.rowid = d.rowid WHERE d.path LIKE ? AND f.value MATCH ? ORDER BY f.rank LIMIT ? OFFSET ?", q.schema, q.schema, q.schema)
-		if query.joinDetails {
+		if query.JoinDetails {
 			join := "INNER JOIN"
-			if query.includeEmptyDetails {
+			if query.IncludeEmptyDetails {
 				join = "RIGHT OUTER JOIN"
 			}
 			sql = fmt.Sprintf("SELECT l.path, l.value, d.value, snippet(%s_fts2, 0, ?, ?, ?, ?) FROM %s_fts2 f INNER JOIN %s_data d ON f.rowid = d.rowid %s %s_data l ON l.value = d.path WHERE l.path LIKE ? AND SUBSTR(CAST(l.value AS TEXT), 1, 1) = 'T' AND f.value MATCH ? ORDER BY f.rank LIMIT ? OFFSET ?", q.schema, q.schema, q.schema, join, q.schema)
 		}
 		rows, err = q.core.Query(
 			sql,
-			search.highlightStart,
-			search.highlightEnd,
-			search.ellipses,
-			search.numTokens,
+			search.HighlightStart,
+			search.HighlightEnd,
+			search.Ellipses,
+			search.NumTokens,
 			serializedPath,
-			search.search,
-			query.count,
-			query.start,
+			search.Search,
+			query.Count,
+			query.Start,
 		)
 	} else {
 		sortOrder := "ASC"
-		if query.reverseSort {
+		if query.ReverseSort {
 			sortOrder = "DESC"
 		}
 		sql := fmt.Sprintf("SELECT path, value FROM %s_data WHERE path LIKE ? ORDER BY path %s LIMIT ? OFFSET ?", q.schema, sortOrder)
-		if query.joinDetails {
+		if query.JoinDetails {
 			join := "INNER JOIN"
-			if query.includeEmptyDetails {
+			if query.IncludeEmptyDetails {
 				join = "LEFT OUTER JOIN"
 			}
 			sql = fmt.Sprintf("SELECT l.path, l.value, d.value FROM %s_data l %s %s_data d ON l.value = d.path WHERE l.path LIKE ? AND SUBSTR(CAST(l.value AS TEXT), 1, 1) = 'T' ORDER BY l.path %s LIMIT ? OFFSET ?", q.schema, join, q.schema, sortOrder)
@@ -277,8 +277,8 @@ func (q *queryable) List(query *QueryParams, search *SearchParams) ([]*item, err
 		rows, err = q.core.Query(
 			sql,
 			serializedPath,
-			query.count,
-			query.start,
+			query.Count,
+			query.Start,
 		)
 	}
 	if err != nil {
@@ -292,13 +292,13 @@ func (q *queryable) List(query *QueryParams, search *SearchParams) ([]*item, err
 		var _path []byte
 		var _detailPath []byte
 		if isSearch {
-			if query.joinDetails {
+			if query.JoinDetails {
 				err = rows.Scan(&_path, &_detailPath, &item.value, &item.snippet)
 			} else {
 				err = rows.Scan(&_path, &item.value, &item.snippet)
 			}
 		} else {
-			if query.joinDetails {
+			if query.JoinDetails {
 				err = rows.Scan(&_path, &_detailPath, &item.value)
 			} else {
 				err = rows.Scan(&_path, &item.value)

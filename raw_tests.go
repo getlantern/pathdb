@@ -1,6 +1,7 @@
 package pathdb
 
-func unloadedRaw[T any](serde *serde, value T) *Raw[T] {
+func UnloadedRaw[T any](db DB, value T) *Raw[T] {
+	serde := db.getSerde()
 	bytes, err := serde.serialize(value)
 	if err != nil {
 		panic(err)
@@ -11,7 +12,8 @@ func unloadedRaw[T any](serde *serde, value T) *Raw[T] {
 	}
 }
 
-func loadedRaw[T any](serde *serde, value T) *Raw[T] {
+func LoadedRaw[T any](db DB, value T) *Raw[T] {
+	serde := db.getSerde()
 	bytes, err := serde.serialize(value)
 	if err != nil {
 		panic(err)
