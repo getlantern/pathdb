@@ -1,10 +1,8 @@
 package pathdb
 
 import (
-	"errors"
 	"fmt"
-
-	"github.com/mattn/go-sqlite3"
+	"strings"
 )
 
 type Item[T any] struct {
@@ -61,9 +59,7 @@ func PutRaw[T any](t TX, path string, value *Raw[T], fullText string) error {
 func PutIfAbsent[T any](t TX, path string, value T, fullText string) (bool, error) {
 	err := t.Put(path, value, nil, fullText, false)
 	if err != nil {
-		var sqlErr sqlite3.Error
-		ok := errors.As(err, &sqlErr)
-		if ok && errors.Is(sqlErr.Code, sqlite3.ErrConstraint) {
+		if strings.Contains(err.Error(), "UNIQUE constraint failed") {
 			// this means there was already a value at that path
 			return false, nil
 		}

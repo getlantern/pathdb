@@ -9,6 +9,8 @@ import (
 
 	"github.com/getlantern/pathdb/minisql"
 	"github.com/getlantern/pathdb/testsupport"
+
+	_ "github.com/mattn/go-sqlite3"
 )
 
 func TestDB(t *testing.T) {
