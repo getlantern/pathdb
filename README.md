@@ -1,0 +1,3 @@
+This is a Go port of https://github.com/getlantern/db-android.
+
+The internal data model is not completely compatible. Paths in db-android are stored as serde serialized BLOBs (e.g. `T/mypath`), whereas in pathdb they are stored as strings (e.g. `mypath`). This was necessary to allow pathdb to work with iOS. The impact is that when we switch Android to use pathdb, we'll have to migrate the data from existing DBs over to a new pathdb and convert paths in the process. This shouldn't be too hard.
