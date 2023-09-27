@@ -211,11 +211,7 @@ func (q *queryable) getSerde() *serde {
 }
 
 func (q *queryable) Get(path string) ([]byte, error) {
-	serializedPath, err := q.serde.serialize(path)
-	if err != nil {
-		return nil, fmt.Errorf("get: serialize path: %w", err)
-	}
-	rows, err := q.core.Query(fmt.Sprintf("SELECT value FROM %s_data WHERE path = ?", q.schema), serializedPath)
+	rows, err := q.core.Query(fmt.Sprintf("SELECT value FROM %s_data WHERE path = ?", q.schema), path)
 	if err != nil {
 		return nil, fmt.Errorf("get: query: %w", err)
 	}
@@ -232,12 +228,8 @@ func (q *queryable) Get(path string) ([]byte, error) {
 }
 
 func (q *queryable) List(query *QueryParams, search *SearchParams) ([]*item, error) {
-	serializedPath, err := q.serde.serialize(query.Path)
-	if err != nil {
-		return nil, fmt.Errorf("list: serialize path: %w", err)
-	}
-
 	query.ApplyDefaults()
+	var err error
 	var rows minisql.ScannableRows
 	isSearch := search != nil
 	if isSearch {
@@ -248,7 +240,7 @@ func (q *queryable) List(query *QueryParams, search *SearchParams) ([]*item, err
 			if query.IncludeEmptyDetails {
 				join = "RIGHT OUTER JOIN"
 			}
-			sql = fmt.Sprintf("SELECT l.path, l.value, d.value, snippet(%s_fts2, 0, ?, ?, ?, ?) FROM %s_fts2 f INNER JOIN %s_data d ON f.rowid = d.rowid %s %s_data l ON l.value = d.path WHERE l.path LIKE ? AND SUBSTR(CAST(l.value AS TEXT), 1, 1) = 'T' AND f.value MATCH ? ORDER BY f.rank LIMIT ? OFFSET ?", q.schema, q.schema, q.schema, join, q.schema)
+			sql = fmt.Sprintf("SELECT l.path, CAST(l.value AS TEXT), d.value, snippet(%s_fts2, 0, ?, ?, ?, ?) FROM %s_fts2 f INNER JOIN %s_data d ON f.rowid = d.rowid %s %s_data l ON SUBSTR(CAST(l.value AS TEXT), 2) = d.path WHERE l.path LIKE ? AND SUBSTR(CAST(l.value AS TEXT), 1, 1) = 'T' AND f.value MATCH ? ORDER BY f.rank LIMIT ? OFFSET ?", q.schema, q.schema, q.schema, join, q.schema)
 		}
 		rows, err = q.core.Query(
 			sql,
@@ -256,7 +248,7 @@ func (q *queryable) List(query *QueryParams, search *SearchParams) ([]*item, err
 			search.HighlightEnd,
 			search.Ellipses,
 			search.NumTokens,
-			serializedPath,
+			query.Path,
 			search.Search,
 			query.Count,
 			query.Start,
@@ -272,11 +264,11 @@ func (q *queryable) List(query *QueryParams, search *SearchParams) ([]*item, err
 			if query.IncludeEmptyDetails {
 				join = "LEFT OUTER JOIN"
 			}
-			sql = fmt.Sprintf("SELECT l.path, l.value, d.value FROM %s_data l %s %s_data d ON l.value = d.path WHERE l.path LIKE ? AND SUBSTR(CAST(l.value AS TEXT), 1, 1) = 'T' ORDER BY l.path %s LIMIT ? OFFSET ?", q.schema, join, q.schema, sortOrder)
+			sql = fmt.Sprintf("SELECT l.path, CAST(l.value AS TEXT), d.value FROM %s_data l %s %s_data d ON SUBSTR(CAST(l.value AS TEXT), 2) = d.path WHERE l.path LIKE ? AND SUBSTR(CAST(l.value AS TEXT), 1, 1) = 'T' ORDER BY l.path %s LIMIT ? OFFSET ?", q.schema, join, q.schema, sortOrder)
 		}
 		rows, err = q.core.Query(
 			sql,
-			serializedPath,
+			query.Path,
 			query.Count,
 			query.Start,
 		)
@@ -289,35 +281,27 @@ func (q *queryable) List(query *QueryParams, search *SearchParams) ([]*item, err
 	items := make([]*item, 0, 100)
 	for rows.Next() {
 		item := &item{}
-		var _path []byte
-		var _detailPath []byte
+		var path string
+		var _detailPath string
 		if isSearch {
 			if query.JoinDetails {
-				err = rows.Scan(&_path, &_detailPath, &item.value, &item.snippet)
+				err = rows.Scan(&path, &_detailPath, &item.value, &item.snippet)
 			} else {
-				err = rows.Scan(&_path, &item.value, &item.snippet)
+				err = rows.Scan(&path, &item.value, &item.snippet)
 			}
 		} else {
 			if query.JoinDetails {
-				err = rows.Scan(&_path, &_detailPath, &item.value)
+				err = rows.Scan(&path, &_detailPath, &item.value)
 			} else {
-				err = rows.Scan(&_path, &item.value)
+				err = rows.Scan(&path, &item.value)
 			}
 		}
 		if err != nil {
 			return nil, fmt.Errorf("list: scan: %w", err)
 		}
-		path, err := q.serde.deserialize(_path)
-		if err != nil {
-			return nil, fmt.Errorf("list: deserialize path: %w", err)
-		}
-		item.path = path.(string)
-		if _detailPath != nil {
-			detailPath, err := q.serde.deserialize(_detailPath)
-			if err != nil {
-				return nil, fmt.Errorf("list: deserialize detail path: %w", err)
-			}
-			item.detailPath = detailPath.(string)
+		item.path = path
+		if _detailPath != "" {
+			item.detailPath = _detailPath[1:]
 		}
 		items = append(items, item)
 	}
@@ -334,10 +318,7 @@ func (t *tx) Put(path string, value interface{}, serializedValue []byte, fullTex
 		return nil
 	}
 
-	serializedPath, err := t.serde.serialize(path)
-	if err != nil {
-		return fmt.Errorf("put: serialize path: %w", err)
-	}
+	var err error
 	if serializedValue == nil && value != nil {
 		serializedValue, err = t.serde.serialize(value)
 		if err != nil {
@@ -364,7 +345,7 @@ func (t *tx) Put(path string, value interface{}, serializedValue []byte, fullTex
 	}
 	if fullText == "" {
 		// not doing full text, simple path
-		_, err = t.tx.Exec(fmt.Sprintf("INSERT INTO %s_data(path, value) VALUES(?, ?)%s", t.schema, onConflictClause), serializedPath, serializedValue)
+		_, err = t.tx.Exec(fmt.Sprintf("INSERT INTO %s_data(path, value) VALUES(?, ?)%s", t.schema, onConflictClause), path, serializedValue)
 		if err != nil {
 			return fmt.Errorf("put: insert: %w", err)
 		}
@@ -375,7 +356,7 @@ func (t *tx) Put(path string, value interface{}, serializedValue []byte, fullTex
 	// get existing row ID for full text indexing
 	existingRowID := -1
 	isUpdate := false
-	rows, err := t.tx.Query(fmt.Sprintf("SELECT rowid FROM %s_data WHERE path = ?", t.schema), serializedPath)
+	rows, err := t.tx.Query(fmt.Sprintf("SELECT rowid FROM %s_data WHERE path = ?", t.schema), path)
 	if err != nil {
 		return fmt.Errorf("put: select rowid: %w", err)
 	}
@@ -412,7 +393,7 @@ func (t *tx) Put(path string, value interface{}, serializedValue []byte, fullTex
 	}
 
 	// insert value
-	_, err = t.tx.Exec(fmt.Sprintf("INSERT INTO %s_data(path, value, rowid) VALUES(?, ?, ?)%s", t.schema, onConflictClause), serializedPath, serializedValue, rowID)
+	_, err = t.tx.Exec(fmt.Sprintf("INSERT INTO %s_data(path, value, rowid) VALUES(?, ?, ?)%s", t.schema, onConflictClause), path, serializedValue, rowID)
 	if err != nil {
 		return fmt.Errorf("put: insert indexed value: %w", err)
 	}
@@ -434,11 +415,7 @@ func (t *tx) Put(path string, value interface{}, serializedValue []byte, fullTex
 }
 
 func (t *tx) Delete(path string) error {
-	serializedPath, err := t.serde.serialize(path)
-	if err != nil {
-		return fmt.Errorf("delete: serialize path: %w", err)
-	}
-	_, err = t.tx.Exec(fmt.Sprintf("DELETE FROM %s_data WHERE path = ?", t.schema), serializedPath)
+	_, err := t.tx.Exec(fmt.Sprintf("DELETE FROM %s_data WHERE path = ?", t.schema), path)
 	if err != nil {
 		return fmt.Errorf("delete: delete: %w", err)
 	}
