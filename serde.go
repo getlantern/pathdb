@@ -69,6 +69,7 @@ func (s *serde) serialize(data interface{}) (result []byte, err error) {
 	case []byte:
 		result = make([]byte, 1+len(v))
 		result[0] = BYTEARRAY
+		copy(result[1:], v)
 	case byte:
 		result = []byte{BYTE, v}
 	case bool:
