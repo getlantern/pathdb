@@ -10,7 +10,7 @@ func TestSerdePrimitiveTypes(t *testing.T) {
 	s := newSerde()
 	testPrimitive(t, s, "", "empty string")
 	testPrimitive(t, s, "bubba", "string")
-	// testRoundTrip(t, s, []byte{0, 1, 2, 3}, "byte array")
+	testRoundTrip(t, s, []byte{0, 1, 2, 3}, "byte array")
 	testPrimitive(t, s, byte(10), "byte")
 	testPrimitive(t, s, false, "false")
 	testPrimitive(t, s, true, "true")
@@ -27,6 +27,11 @@ func TestSerdePrimitiveTypes(t *testing.T) {
 }
 
 func testPrimitive(t *testing.T, s *serde, value interface{}, name string) {
+	rt := roundTrip(t, s, value)
+	require.Equal(t, value, rt, name)
+}
+
+func testRoundTrip(t *testing.T, s *serde, value interface{}, name string) {
 	rt := roundTrip(t, s, value)
 	require.Equal(t, value, rt, name)
 }
