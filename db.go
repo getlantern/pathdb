@@ -119,7 +119,13 @@ func NewDB(core minisql.DB, schema string) (DB, error) {
 	// Run database in WAL mode
 	_, err := _core.Exec("PRAGMA journal_mode=WAL")
 	if err != nil {
-		return nil, fmt.Errorf("newdb: set journal mode: %w", err)
+		return nil, fmt.Errorf("newdb: PRAGMA journal_mode: %w", err)
+	}
+
+	// Set busy timeout of 5 seconds
+	_, err = _core.Exec("PRAGMA busy_timeout=5000")
+	if err != nil {
+		return nil, fmt.Errorf("newdb: PRAGMA busy_timeout: %w", err)
 	}
 
 	// All data is stored in a single table that has a TEXT path and a BLOB value. The table is
