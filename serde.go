@@ -185,3 +185,11 @@ func (s *serde) deserialize(b []byte) (result interface{}, err error) {
 
 	return
 }
+
+func (s *serde) isProtocolBuffer(b []byte) bool {
+	return b[0] == PROTOCOLBUFFER
+}
+
+func (s *serde) stripHeader(b []byte) []byte {
+	return b[1:]
+}
