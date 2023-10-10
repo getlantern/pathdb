@@ -74,6 +74,7 @@ type DB interface {
 	WithSchema(string) DB
 	Subscribe(*subscription)
 	Unsubscribe(string)
+	RegisterType(id int16, example interface{})
 }
 
 type TX interface {
