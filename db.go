@@ -186,6 +186,10 @@ func (d *db) WithSchema(schema string) DB {
 	}
 }
 
+func (d *db) RegisterType(id int16, example interface{}) {
+	d.getSerde().register(id, example)
+}
+
 func (d *db) Begin() (TX, error) {
 	_tx, err := d.db.Begin()
 	if err != nil {
