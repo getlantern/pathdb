@@ -22,7 +22,7 @@ func (r *Raw[T]) Value() (T, error) {
 
 func (r *Raw[T]) ValueOrProtoBytes() (interface{}, error) {
 	if r.serde.isProtocolBuffer(r.Bytes) {
-		return r.serde.stripHeader(r.Bytes), nil
+		return r.serde.stripProtocolBufferHeader(r.Bytes), nil
 	}
 	return r.Value()
 }

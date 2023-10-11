@@ -190,6 +190,6 @@ func (s *serde) isProtocolBuffer(b []byte) bool {
 	return b[0] == PROTOCOLBUFFER
 }
 
-func (s *serde) stripHeader(b []byte) []byte {
-	return b[1:]
+func (s *serde) stripProtocolBufferHeader(b []byte) []byte {
+	return b[3:]
 }
