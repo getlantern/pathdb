@@ -6,10 +6,10 @@ import (
 )
 
 const (
-	valueTypeBytes  = 0
-	valueTypeString = 1
-	valueTypeInt    = 2
-	valueTypeBool   = 3
+	ValueTypeBytes  = 0
+	ValueTypeString = 1
+	ValueTypeInt    = 2
+	ValueTypeBool   = 3
 )
 
 type Value struct {
@@ -28,7 +28,7 @@ func (v *Value) Bool() bool {
 }
 
 func (v *Value) SetBool(s bool) {
-	v.Type = valueTypeBool
+	v.Type = ValueTypeBool
 	*v.bool = s
 }
 
@@ -40,7 +40,7 @@ func (v *Value) String() string {
 }
 
 func (v *Value) SetString(s string) {
-	v.Type = valueTypeString
+	v.Type = ValueTypeString
 	*v.string = s
 }
 
@@ -52,7 +52,7 @@ func (v *Value) Int() int {
 }
 
 func (v *Value) SetInt(i int) {
-	v.Type = valueTypeInt
+	v.Type = ValueTypeInt
 	*v.int = i
 }
 
@@ -64,7 +64,7 @@ func (v *Value) Bytes() []byte {
 }
 
 func (v *Value) SetBytes(i []byte) {
-	v.Type = valueTypeBytes
+	v.Type = ValueTypeBytes
 	// Copy the bytes since the ones passed in are unsafe
 	var b = make([]byte, len(i))
 	copy(b, i)
@@ -89,30 +89,30 @@ func NewValueBytes(i []byte) *Value {
 	// Copy the bytes since the ones passed in are unsafe
 	var b = make([]byte, len(i))
 	copy(b, i)
-	return &Value{Type: valueTypeBytes, bytes: &b}
+	return &Value{Type: ValueTypeBytes, bytes: &b}
 }
 
 func NewValueString(i string) *Value {
-	return &Value{Type: valueTypeString, string: &i}
+	return &Value{Type: ValueTypeString, string: &i}
 }
 
 func NewValueInt(i int) *Value {
-	return &Value{Type: valueTypeInt, int: &i}
+	return &Value{Type: ValueTypeInt, int: &i}
 }
 func NewValueBool(i bool) *Value {
-	return &Value{Type: valueTypeBool, bool: &i}
+	return &Value{Type: ValueTypeBool, bool: &i}
 }
 
 func valueFromPointer(i interface{}) *Value {
 	switch t := i.(type) {
 	case *[]byte:
-		return &Value{Type: valueTypeBytes, bytes: t}
+		return &Value{Type: ValueTypeBytes, bytes: t}
 	case *string:
-		return &Value{Type: valueTypeString, string: t}
+		return &Value{Type: ValueTypeString, string: t}
 	case *int:
-		return &Value{Type: valueTypeInt, int: t}
+		return &Value{Type: ValueTypeInt, int: t}
 	case *bool:
-		return &Value{Type: valueTypeBool, bool: t}
+		return &Value{Type: ValueTypeBool, bool: t}
 	default:
 		panic(fmt.Errorf("type can't be used to initialize value from pointer: %v", reflect.TypeOf(i)))
 	}
@@ -120,13 +120,13 @@ func valueFromPointer(i interface{}) *Value {
 
 func (v *Value) value() interface{} {
 	switch v.Type {
-	case valueTypeBytes:
+	case ValueTypeBytes:
 		return *v.bytes
-	case valueTypeString:
+	case ValueTypeString:
 		return *v.string
-	case valueTypeInt:
+	case ValueTypeInt:
 		return *v.int
-	case valueTypeBool:
+	case ValueTypeBool:
 		return *v.bool
 	default:
 		return nil
@@ -136,13 +136,13 @@ func (v *Value) value() interface{} {
 func (v *Value) set(i interface{}) {
 	if i != nil {
 		switch v.Type {
-		case valueTypeBytes:
+		case ValueTypeBytes:
 			v.SetBytes(*i.(*[]byte))
-		case valueTypeString:
+		case ValueTypeString:
 			v.SetString(*i.(*string))
-		case valueTypeInt:
+		case ValueTypeInt:
 			v.SetInt(*i.(*int))
-		case valueTypeBool:
+		case ValueTypeBool:
 			v.SetBool(*i.(*bool))
 		}
 	}
@@ -150,15 +150,15 @@ func (v *Value) set(i interface{}) {
 
 func (v *Value) pointerToEmptyValue() interface{} {
 	switch v.Type {
-	case valueTypeBytes:
+	case ValueTypeBytes:
 		return &[]byte{}
-	case valueTypeString:
+	case ValueTypeString:
 		str := ""
 		return &str
-	case valueTypeInt:
+	case ValueTypeInt:
 		i := 0
 		return &i
-	case valueTypeBool:
+	case ValueTypeBool:
 		i := false
 		return &i
 	default:
