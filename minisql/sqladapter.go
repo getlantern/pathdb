@@ -14,8 +14,9 @@ func (db *DBAdapter) Begin() (Tx, error) {
 	return &TxAdapter{tx}, nil
 }
 
-func (db *DBAdapter) Exec(query string, args Values) (Result, error) {
-	return db.DB.Exec(query, argsToParams(args)...)
+func (db *DBAdapter) Exec(query string, args Values) error {
+	_, err := db.DB.Exec(query, argsToParams(args)...)
+	return err
 }
 
 func (db *DBAdapter) Query(query string, args Values) (Rows, error) {
@@ -27,8 +28,9 @@ type TxAdapter struct {
 	*sql.Tx
 }
 
-func (tx *TxAdapter) Exec(query string, args Values) (Result, error) {
-	return tx.Tx.Exec(query, argsToParams(args)...)
+func (tx *TxAdapter) Exec(query string, args Values) error {
+	_, err := tx.Tx.Exec(query, argsToParams(args)...)
+	return err
 }
 
 func (tx *TxAdapter) Query(query string, args Values) (Rows, error) {

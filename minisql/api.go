@@ -10,7 +10,7 @@ type QueryableAPI struct {
 	Queryable
 }
 
-func (q *QueryableAPI) Exec(query string, args ...interface{}) (Result, error) {
+func (q *QueryableAPI) Exec(query string, args ...interface{}) error {
 	return q.Queryable.Exec(query, NewValues(args))
 }
 

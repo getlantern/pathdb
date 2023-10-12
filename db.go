@@ -118,13 +118,13 @@ func NewDB(core minisql.DB, schema string) (DB, error) {
 	_core := minisql.Wrap(core)
 
 	// Run database in WAL mode
-	_, err := _core.Exec("PRAGMA journal_mode=WAL")
+	err := _core.Exec("PRAGMA journal_mode=WAL")
 	if err != nil {
 		return nil, fmt.Errorf("newdb: PRAGMA journal_mode: %w", err)
 	}
 
 	// Set busy timeout of 5 seconds
-	_, err = _core.Exec("PRAGMA busy_timeout=5000")
+	err = _core.Exec("PRAGMA busy_timeout=5000")
 	if err != nil {
 		return nil, fmt.Errorf("newdb: PRAGMA busy_timeout: %w", err)
 	}
@@ -134,25 +134,25 @@ func NewDB(core minisql.DB, schema string) (DB, error) {
 	// optimization for range scans on the path. To support full text indexing in a separate
 	// fts5 table, we include a manually managed INTEGER rowid to which we can join the fts5
 	// table. Rows that are not full text indexed leave rowid null to save space.
-	_, err = _core.Exec(fmt.Sprintf("CREATE TABLE IF NOT EXISTS %s_data (path TEXT PRIMARY KEY, value BLOB, rowid INTEGER) WITHOUT ROWID", schema))
+	err = _core.Exec(fmt.Sprintf("CREATE TABLE IF NOT EXISTS %s_data (path TEXT PRIMARY KEY, value BLOB, rowid INTEGER) WITHOUT ROWID", schema))
 	if err != nil {
 		return nil, fmt.Errorf("newdb: create data table: %w", err)
 	}
 
 	// Create an index on only text values to speed up detail lookups that join on path = value
-	_, err = _core.Exec(fmt.Sprintf("CREATE INDEX IF NOT EXISTS %s_data_value_index ON %s_data(value) WHERE SUBSTR(CAST(value AS TEXT), 1, 1) = 'T'", schema, schema))
+	err = _core.Exec(fmt.Sprintf("CREATE INDEX IF NOT EXISTS %s_data_value_index ON %s_data(value) WHERE SUBSTR(CAST(value AS TEXT), 1, 1) = 'T'", schema, schema))
 	if err != nil {
 		return nil, fmt.Errorf("newdb: create data value index: %w", err)
 	}
 
 	// Create a table for full text search
-	_, err = _core.Exec(fmt.Sprintf("CREATE VIRTUAL TABLE IF NOT EXISTS %s_fts2 USING fts5(value, tokenize='porter trigram')", schema))
+	err = _core.Exec(fmt.Sprintf("CREATE VIRTUAL TABLE IF NOT EXISTS %s_fts2 USING fts5(value, tokenize='porter trigram')", schema))
 	if err != nil {
 		return nil, fmt.Errorf("newdb: create search table: %w", err)
 	}
 
 	// Create a table for managing custom counters (currently used only for full text indexing)
-	_, err = _core.Exec(fmt.Sprintf("CREATE TABLE IF NOT EXISTS %s_counters (id INTEGER PRIMARY KEY, value INTEGER)", schema))
+	err = _core.Exec(fmt.Sprintf("CREATE TABLE IF NOT EXISTS %s_counters (id INTEGER PRIMARY KEY, value INTEGER)", schema))
 	if err != nil {
 		return nil, fmt.Errorf("newdb: create counters table: %w", err)
 	}
@@ -362,7 +362,7 @@ func (t *tx) Put(path string, value interface{}, serializedValue []byte, fullTex
 	}
 	if fullText == "" {
 		// not doing full text, simple path
-		_, err = t.tx.Exec(fmt.Sprintf("INSERT INTO %s_data(path, value) VALUES(?, ?)%s", t.schema, onConflictClause), path, serializedValue)
+		err = t.tx.Exec(fmt.Sprintf("INSERT INTO %s_data(path, value) VALUES(?, ?)%s", t.schema, onConflictClause), path, serializedValue)
 		if err != nil {
 			return fmt.Errorf("put: insert: %w", err)
 		}
@@ -391,7 +391,7 @@ func (t *tx) Put(path string, value interface{}, serializedValue []byte, fullTex
 	rowID := existingRowID
 	if !isUpdate {
 		// we're inserting a new row, get the next rowID from the sequence
-		_, err = t.tx.Exec(fmt.Sprintf("INSERT INTO %s_counters(id, value) VALUES(0, 0) ON CONFLICT(id) DO UPDATE SET value = value+1", t.schema))
+		err = t.tx.Exec(fmt.Sprintf("INSERT INTO %s_counters(id, value) VALUES(0, 0) ON CONFLICT(id) DO UPDATE SET value = value+1", t.schema))
 		if err != nil {
 			return fmt.Errorf("put: increment sequence: %w", err)
 		}
@@ -410,20 +410,20 @@ func (t *tx) Put(path string, value interface{}, serializedValue []byte, fullTex
 	}
 
 	// insert value
-	_, err = t.tx.Exec(fmt.Sprintf("INSERT INTO %s_data(path, value, rowid) VALUES(?, ?, ?)%s", t.schema, onConflictClause), path, serializedValue, rowID)
+	err = t.tx.Exec(fmt.Sprintf("INSERT INTO %s_data(path, value, rowid) VALUES(?, ?, ?)%s", t.schema, onConflictClause), path, serializedValue, rowID)
 	if err != nil {
 		return fmt.Errorf("put: insert indexed value: %w", err)
 	}
 
 	// maintain full text index
 	if !isUpdate {
-		_, err = t.tx.Exec(fmt.Sprintf("INSERT INTO %s_fts2(value, rowid) VALUES(?, ?)", t.schema), fullText, rowID)
+		err = t.tx.Exec(fmt.Sprintf("INSERT INTO %s_fts2(value, rowid) VALUES(?, ?)", t.schema), fullText, rowID)
 		if err != nil {
 			return fmt.Errorf("put: insert into fts index: %w", err)
 		}
 		return nil
 	}
-	_, err = t.tx.Exec(fmt.Sprintf("UPDATE %s_fts2 SET value = ? where rowid = ?", t.schema), fullText, rowID)
+	err = t.tx.Exec(fmt.Sprintf("UPDATE %s_fts2 SET value = ? where rowid = ?", t.schema), fullText, rowID)
 	if err != nil {
 		return fmt.Errorf("put: update fts index: %w", err)
 	}
@@ -432,7 +432,7 @@ func (t *tx) Put(path string, value interface{}, serializedValue []byte, fullTex
 }
 
 func (t *tx) Delete(path string) error {
-	_, err := t.tx.Exec(fmt.Sprintf("DELETE FROM %s_data WHERE path = ?", t.schema), path)
+	err := t.tx.Exec(fmt.Sprintf("DELETE FROM %s_data WHERE path = ?", t.schema), path)
 	if err != nil {
 		return fmt.Errorf("delete: delete: %w", err)
 	}
