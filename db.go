@@ -117,24 +117,12 @@ type commit struct {
 func NewDB(core minisql.DB, schema string) (DB, error) {
 	_core := minisql.Wrap(core)
 
-	// Run database in WAL mode
-	err := _core.Exec("PRAGMA journal_mode=WAL")
-	if err != nil {
-		return nil, fmt.Errorf("newdb: PRAGMA journal_mode: %w", err)
-	}
-
-	// Set busy timeout of 5 seconds
-	err = _core.Exec("PRAGMA busy_timeout=5000")
-	if err != nil {
-		return nil, fmt.Errorf("newdb: PRAGMA busy_timeout: %w", err)
-	}
-
 	// All data is stored in a single table that has a TEXT path and a BLOB value. The table is
 	// stored as an index organized table (WITHOUT ROWID option) as a performance
 	// optimization for range scans on the path. To support full text indexing in a separate
 	// fts5 table, we include a manually managed INTEGER rowid to which we can join the fts5
 	// table. Rows that are not full text indexed leave rowid null to save space.
-	err = _core.Exec(fmt.Sprintf("CREATE TABLE IF NOT EXISTS %s_data (path TEXT PRIMARY KEY, value BLOB, rowid INTEGER) WITHOUT ROWID", schema))
+	err := _core.Exec(fmt.Sprintf("CREATE TABLE IF NOT EXISTS %s_data (path TEXT PRIMARY KEY, value BLOB, rowid INTEGER) WITHOUT ROWID", schema))
 	if err != nil {
 		return nil, fmt.Errorf("newdb: create data table: %w", err)
 	}
