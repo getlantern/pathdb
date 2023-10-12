@@ -17,7 +17,6 @@ type DB interface {
 	Exec(query string, args Values) error
 	Query(query string, args Values) (Rows, error)
 	Begin() (Tx, error)
-	Close() error
 }
 
 type Tx interface {
