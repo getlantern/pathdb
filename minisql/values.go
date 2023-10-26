@@ -79,6 +79,10 @@ func NewValue(i interface{}) *Value {
 		return NewValueString(v)
 	case int:
 		return NewValueInt(v)
+	case int32:
+		return NewValueInt(int(v))
+	case int64:
+		return NewValueInt(int(v))
 	case bool:
 		return NewValueBool(v)
 	}
