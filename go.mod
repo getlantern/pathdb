@@ -1,8 +1,6 @@
 module github.com/getlantern/pathdb
 
-go 1.21
-
-toolchain go1.22.6
+go 1.23.0
 
 require (
 	github.com/getlantern/golog v0.0.0-20230503153817-8e72de7e0a65
