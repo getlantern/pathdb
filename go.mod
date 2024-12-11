@@ -1,10 +1,10 @@
 module github.com/getlantern/pathdb
 
-go 1.23.0
+go 1.23.1
 
 require (
 	github.com/getlantern/golog v0.0.0-20230503153817-8e72de7e0a65
-	github.com/mattn/go-sqlite3 v1.14.22
+	github.com/mattn/go-sqlite3 v1.14.23
 	github.com/stretchr/testify v1.9.0
 	github.com/tchap/go-patricia/v2 v2.3.1
 	google.golang.org/protobuf v1.34.2

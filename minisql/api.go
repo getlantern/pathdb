@@ -10,6 +10,7 @@ type QueryableAPI struct {
 	Queryable
 }
 
+//go:nosplit
 func (q *QueryableAPI) Exec(query string, args ...interface{}) error {
 	return q.Queryable.Exec(query, NewValues(args))
 }
